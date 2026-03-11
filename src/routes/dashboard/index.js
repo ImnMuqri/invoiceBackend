@@ -45,17 +45,36 @@ async function dashboardRoutes(fastify, opts) {
         include: { client: true },
       });
 
-      const topClients = await prisma.client.findMany({
-        where: { userId: request.user.id },
-        take: 5,
-        orderBy: { totalRevenue: "desc" },
-        select: {
-          id: true,
-          name: true,
-          totalRevenue: true,
-          profitMargin: true,
+      const topClientsRaw = await prisma.invoice.groupBy({
+        by: ["clientId"],
+        where: {
+          userId: request.user.id,
+          status: "Paid",
         },
+        _sum: {
+          amount: true,
+        },
+        orderBy: {
+          _sum: {
+            amount: "desc",
+          },
+        },
+        take: 5,
       });
+
+      const topClients = await Promise.all(
+        topClientsRaw.map(async (raw) => {
+          const client = await prisma.client.findUnique({
+            where: { id: raw.clientId },
+          });
+          return {
+            id: client.id,
+            name: client.name || "Unknown Client",
+            totalRevenue: raw._sum?.amount || 0,
+            profitMargin: client.profitMargin || 25,
+          };
+        }),
+      );
 
       // Cashflow History - matching period in the past
       const historyStartDate = new Date();
