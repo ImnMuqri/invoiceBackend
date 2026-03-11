@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                        Int      @id @default(autoincrement())
+  email                     String   @unique
+  password                  String
+  name                      String?
+  companyName               String?
+  companyEmail              String?
+  address                   String?
+  defaultCurrency           String   @default("MYR")
+  defaultTaxRate            Float    @default(0.0)
+  whatsappSendTemplate      String?  @default("{{userName}} {{companyName}} via InvoKita\n\nHello {{clientName}}, here is your invoice {{invoiceNumber}} for {{totalAmount}} {{currency}}. Due on {{dueDate}}. View here: {{invoiceUrl}}")
+  whatsappReminderTemplate  String?  @default("{{userName}} {{companyName}} via InvoKita\n\nFriendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. Please ignore if already paid.")
+  whatsappMode              String   @default("SYSTEM")
+  twilioSid                 String?
+  twilioAuthToken           String?
+  twilioPhoneNumber         String?
+  plan                      String   @default("FREE")
+  waSendsUsed               Int      @default(0)
+  emailSendsUsed            Int      @default(0)
+  waRemindersUsed           Int      @default(0)
+  emailRemindersUsed        Int      @default(0)
+  aiUsed                    Int      @default(0)
+  lastResetDate             DateTime @default(now())
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+  clients                   Client[]
+  invoices                  Invoice[]
+}
+
+model Client {
+  id               Int       @id @default(autoincrement())
+  userId           Int
+  user             User      @relation(fields: [userId], references: [id])
+  name             String
+  email            String
+  phone            String?
+  address          String?
+  company          String
+  riskScore        Int       @default(0)
+  averageDelayDays Int       @default(0)
+  totalRevenue     Float     @default(0.0)
+  profitMargin     Float     @default(0.0)
+  status           String    @default("Active")
+  autoChaser       Boolean   @default(false)
+  autoEmailChaser  Boolean   @default(false)
+  invoices         Invoice[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model Invoice {
+  id                        Int           @id @default(autoincrement())
+  userId                    Int
+  user                      User          @relation(fields: [userId], references: [id])
+  clientId                  Int
+  client                    Client        @relation(fields: [clientId], references: [id])
+  invoiceNumber             String?
+  invoiceName               String?
+  subject                   String?
+  fromName                  String?
+  fromEmail                 String?
+  fromAddress               String?
+  date                      DateTime      @default(now())
+  dueDate                   DateTime
+  amount                    Float
+  status                    String        @default("Pending")
+  currency                  String        @default("MYR")
+  latePrediction            String?
+  riskScore                 Int?
+  predictedDelayDays        Int?
+  whatsappStatus            String        @default("Not Sent")
+  whatsappLastReminderSent  DateTime?
+  emailLastReminderSent     DateTime?
+  template                  String        @default("professional")
+  items                     InvoiceItem[]
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
+}
+
+model InvoiceItem {
+  id        Int      @id @default(autoincrement())
+  invoiceId Int
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  name      String
+  quantity  Int
+  price     Float
+  total     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
