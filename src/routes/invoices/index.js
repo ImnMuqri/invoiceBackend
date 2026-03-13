@@ -25,7 +25,8 @@ async function invoiceRoutes(fastify, opts) {
     if (!invoice) return reply.notFound("Invoice not found");
 
     // Public URL for PDF generation (Using more professional export layout)
-    const publicUrl = `http://localhost:3000/invoices/${id}/export`;
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const publicUrl = `${frontendUrl}/invoices/${id}/export`;
 
     try {
       const pdfBuffer = await fastify.generatePDF(publicUrl);
@@ -162,7 +163,8 @@ async function invoiceRoutes(fastify, opts) {
 
       if (!invoice) return reply.notFound("Invoice not found");
 
-      const publicUrl = `http://localhost:3000/pay/${id}`;
+      const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+      const publicUrl = `${frontendUrl}/pay/${id}`;
 
       if (method === "email") {
         const targetEmail = email || invoice.client.email;
