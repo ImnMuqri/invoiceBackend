@@ -59,22 +59,62 @@ async function clientRoutes(fastify, opts) {
   // POST create client
   fastify.post("/", async (request, reply) => {
     const data = request.body;
-    const client = await prisma.client.create({
-      data: {
-        ...data,
+
+    if (!data.name || !data.email) {
+      return reply.badRequest("Name and Email are required");
+    }
+
+    const email = data.email.trim().toLowerCase();
+
+    // Check for existing client with same email for this user (case-insensitive)
+    const existingClient = await prisma.client.findFirst({
+      where: {
+        email: {
+          equals: email,
+          mode: "insensitive",
+        },
         userId: request.user.id,
       },
     });
-    return client;
+
+    if (existingClient) {
+      return reply.badRequest("Client already exists with this email");
+    }
+
+    const client = await prisma.client.create({
+      data: {
+        ...data,
+        email: email, // Save trimmed and lowercased
+        userId: request.user.id,
+      },
+    });
+    return { ...client, message: "Client added successfully" };
   });
 
   // DELETE client
   fastify.delete("/:id", async (request, reply) => {
     const id = Number(request.params.id);
-    await prisma.client.delete({
-      where: { id, userId: request.user.id },
+
+    // Check if client has invoices
+    const invoiceCount = await prisma.invoice.count({
+      where: { clientId: id, userId: request.user.id },
     });
-    return { success: true };
+
+    if (invoiceCount > 0) {
+      return reply.badRequest(
+        `Cannot delete client. They have ${invoiceCount} associated invoices. Delete the invoices first.`,
+      );
+    }
+
+    try {
+      await prisma.client.delete({
+        where: { id, userId: request.user.id },
+      });
+      return { success: true, message: "Client deleted successfully" };
+    } catch (err) {
+      console.error("Error deleting client:", err);
+      return reply.internalServerError("Failed to delete client");
+    }
   });
 
   // PUT update client
@@ -100,6 +140,33 @@ async function clientRoutes(fastify, opts) {
       }
     });
 
+    // Tighten validation and normalize email
+    if (data.email !== undefined) {
+      data.email = data.email.trim().toLowerCase();
+    }
+
+    if (data.name === "" || data.email === "") {
+      return reply.badRequest("Name and Email cannot be empty");
+    }
+
+    // If email is being changed, check for uniqueness
+    if (data.email) {
+      const existingWithEmail = await prisma.client.findFirst({
+        where: {
+          email: {
+            equals: data.email,
+            mode: "insensitive",
+          },
+          userId: request.user.id,
+          id: { not: id }, // Exclude current client
+        },
+      });
+
+      if (existingWithEmail) {
+        return reply.badRequest("Another client already exists with this email");
+      }
+    }
+
     try {
       // Check if user is FREE before allowing chaser enablement
       if (data.autoChaser || data.autoEmailChaser) {
@@ -117,7 +184,7 @@ async function clientRoutes(fastify, opts) {
         where: { id, userId: request.user.id },
         data,
       });
-      return client;
+      return { ...client, message: "Client updated successfully" };
     } catch (err) {
       console.error("Error updating client:", err);
       return reply.internalServerError("Failed to update client");

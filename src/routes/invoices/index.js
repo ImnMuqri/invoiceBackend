@@ -91,7 +91,7 @@ async function invoiceRoutes(fastify, opts) {
         include: { items: true, client: true },
       });
 
-      return updatedInvoice;
+      return { ...updatedInvoice, message: "Invoice created successfully" };
     });
 
     // PUT update invoice
@@ -136,7 +136,7 @@ async function invoiceRoutes(fastify, opts) {
         include: { items: true, client: true },
       });
 
-      return invoice;
+      return { ...invoice, message: "Invoice updated successfully" };
     });
 
     // DELETE invoice
@@ -145,7 +145,7 @@ async function invoiceRoutes(fastify, opts) {
       await prisma.invoice.delete({
         where: { id, userId: request.user.id },
       });
-      return { success: true };
+      return { success: true, message: "Invoice deleted successfully" };
     });
   });
 

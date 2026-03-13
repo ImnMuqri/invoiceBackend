@@ -74,7 +74,7 @@ async function settingsRoutes(fastify, opts) {
       },
     });
 
-    return updatedUser;
+    return { ...updatedUser, message: "Settings updated successfully" };
   });
 }
 
