@@ -64,8 +64,8 @@ async function userRoutes(fastify, opts) {
     return updatedUser;
   });
 
-  // POST update plan
-  fastify.post("/update-plan", async (request, reply) => {
+  // POST subscribe to a plan
+  fastify.post("/subscribe", async (request, reply) => {
     const { plan } = request.body;
     if (!["FREE", "PRO", "MAX"].includes(plan)) {
       return reply.badRequest("Invalid plan");
@@ -80,7 +80,7 @@ async function userRoutes(fastify, opts) {
       },
     });
 
-    return updatedUser;
+    return { ...updatedUser, message: `Successfully subscribed to ${plan} plan!` };
   });
 
   // Register settings routes

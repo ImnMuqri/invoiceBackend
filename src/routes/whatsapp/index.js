@@ -46,7 +46,8 @@ async function whatsappRoutes(fastify, opts) {
           user?.whatsappSendTemplate ||
           "{{userName}} {{companyName}} via InvoKita\n\nHello {{clientName}}, here is your invoice {{invoiceNumber}} for {{totalAmount}} {{currency}}. Due on {{dueDate}}. View here: {{invoiceUrl}}";
 
-        const invoiceUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/pay/${invoice.id}`;
+        const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/['"]/g, "").replace(/\/$/, "") : "http://localhost:3000";
+        const invoiceUrl = `${frontendUrl}/pay/${invoice.id}`;
 
         const message = template
           .replace(/{{userName}}/g, user.name || "")
@@ -123,7 +124,8 @@ async function whatsappRoutes(fastify, opts) {
           user?.whatsappReminderTemplate ||
           "{{userName}} {{companyName}} via InvoKita\n\nFriendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. Please ignore if already paid.";
 
-        const invoiceUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/pay/${invoice.id}`;
+        const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/['"]/g, "").replace(/\/$/, "") : "http://localhost:3000";
+        const invoiceUrl = `${frontendUrl}/pay/${invoice.id}`;
 
         const message = template
           .replace(/{{userName}}/g, user.name || "")

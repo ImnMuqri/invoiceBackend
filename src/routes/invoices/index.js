@@ -58,7 +58,8 @@ async function invoiceRoutes(fastify, opts) {
 
     // POST create invoice
     protectedInstance.post("/", async (request, reply) => {
-      const { clientId, items, template, ...invoiceData } = request.body;
+      const { clientId, items, template, fromCompanyName, ...invoiceData } =
+        request.body;
 
       // Calculate amount from items if not provided
       const amount =
@@ -68,6 +69,7 @@ async function invoiceRoutes(fastify, opts) {
       const invoice = await prisma.invoice.create({
         data: {
           ...invoiceData,
+          fromCompanyName,
           amount,
           template: template || "professional",
           user: { connect: { id: request.user.id } },
@@ -97,8 +99,14 @@ async function invoiceRoutes(fastify, opts) {
     // PUT update invoice
     protectedInstance.put("/:id", async (request, reply) => {
       const id = Number(request.params.id);
-      const { clientId, items, invoiceNumber, template, ...invoiceData } =
-        request.body;
+      const {
+        clientId,
+        items,
+        invoiceNumber,
+        template,
+        fromCompanyName,
+        ...invoiceData
+      } = request.body;
 
       // Calculate amount from items if not provided
       const amount =
@@ -109,6 +117,7 @@ async function invoiceRoutes(fastify, opts) {
 
       const updateData = {
         ...invoiceData,
+        fromCompanyName,
         amount,
         template: template || "professional",
         invoiceNumber: `INV-${id.toString().padStart(4, "0")}`,
@@ -154,7 +163,7 @@ async function invoiceRoutes(fastify, opts) {
     { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const id = Number(request.params.id);
-      const { method, email } = request.body; // method: 'email' or 'whatsapp'
+      const { method, email, isReminder } = request.body; // method: 'email' or 'whatsapp'
 
       const invoice = await prisma.invoice.findFirst({
         where: { id, userId: request.user.id },
@@ -162,9 +171,13 @@ async function invoiceRoutes(fastify, opts) {
       });
 
       if (!invoice) return reply.notFound("Invoice not found");
+      
+      if (invoice.status === "Paid") {
+        return reply.badRequest("Cannot send communications for an invoice that is already paid");
+      }
 
-      const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-      const publicUrl = `${frontendUrl}/pay/${id}`;
+      const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/['"]/g, "") : "http://localhost:3000";
+      const publicUrl = `${frontendUrl.replace(/\/$/, "")}/pay/${id}`;
 
       if (method === "email") {
         const targetEmail = email || invoice.client.email;
@@ -172,16 +185,59 @@ async function invoiceRoutes(fastify, opts) {
 
         try {
           // Usage check
-          await fastify.usage.checkAndIncrement(request.user.id, "emailSend");
+          await fastify.usage.checkAndIncrement(request.user.id, isReminder ? "emailReminder" : "emailSend");
 
-          await fastify.mailer.sendMail({
-            from: `"InvoKita" <no-reply@invokita.com>`,
-            to: targetEmail,
-            subject: `Invoice ${invoice.invoiceNumber} from InvoKita`,
-            text: `Hi ${invoice.client.name}, your invoice is ready. View it here: ${publicUrl}`,
-            html: `<p>Hi ${invoice.client.name},</p><p>Your invoice <b>${invoice.invoiceNumber}</b> is ready.</p><p><a href="${publicUrl}">Click here to view and pay</a></p>`,
+          // Fetch user for personalization
+          const user = await prisma.user.findUnique({
+            where: { id: request.user.id },
           });
-          return { success: true, message: "Email sent" };
+
+          // Generate PDF
+          // For local development, we must use localhost so Puppeteer can reach the local frontend
+          // Even if FRONTEND_URL is set to production, local Puppeteer can't reach local data on a production URL.
+          const isLocal = !process.env.NODE_ENV || process.env.NODE_ENV === "development" || frontendUrl.includes("localhost");
+          const pdfBaseUrl = isLocal ? "http://localhost:3000" : frontendUrl;
+          const pdfGenerateUrl = `${pdfBaseUrl.replace(/\/$/, "")}/invoices/${id}/export`;
+          
+          fastify.log.info({ pdfGenerateUrl, frontendUrl, publicUrl, isLocal }, "Generating PDF for invoice email");
+          
+          let pdfBuffer = await fastify.generatePDF(pdfGenerateUrl);
+          
+          // Ensure it's a standard Buffer for Resend
+          if (pdfBuffer && !(pdfBuffer instanceof Buffer)) {
+            pdfBuffer = Buffer.from(pdfBuffer);
+          }
+          
+          fastify.log.info({ pdfSize: pdfBuffer?.length }, "PDF generated for attachment");
+
+          // Get template
+          const { getInvoiceEmailTemplate } = require("../../utils/emailTemplates");
+          const html = getInvoiceEmailTemplate({
+            clientName: invoice.client.name,
+            senderName: user.name || "Our Company",
+            senderCompany: user.companyName,
+            invoiceNumber: invoice.invoiceNumber || `#${id}`,
+            amount: invoice.amount,
+            currency: invoice.currency,
+            dueDate: invoice.dueDate,
+            status: isReminder ? "Payment Reminder" : (invoice.status === "Pending" && new Date(invoice.dueDate) < new Date() ? "Overdue" : invoice.status),
+            publicUrl,
+          });
+
+          const subjectPrefix = isReminder ? "REMINDER: " : "";
+
+          await fastify.email.send({
+            to: targetEmail,
+            subject: `${subjectPrefix}Invoice ${invoice.invoiceNumber || id} from ${user.companyName || user.name}`,
+            html,
+            attachments: pdfBuffer ? [
+              {
+                filename: `Invoice_${invoice.invoiceNumber || id}.pdf`,
+                content: pdfBuffer,
+              },
+            ] : [],
+          });
+          return { success: true, message: isReminder ? "Reminder email sent" : "Email sent" };
         } catch (err) {
           fastify.log.error(err);
           // If usage check fails (403), pass the error through
@@ -195,14 +251,19 @@ async function invoiceRoutes(fastify, opts) {
         });
 
         if (user.plan === "FREE") {
-          return reply.forbidden("Upgrade to Pro to send invoices via WhatsApp");
+          return reply.forbidden(
+            "Upgrade to Pro to send invoices via WhatsApp",
+          );
         }
 
         // For WhatsApp, we return a sharing link
         // This is usually handled on the frontend for better UX (opening the app)
         // but we can provide the formatted text/link here.
+        const greeting = isReminder ? `Friendly reminder for ${invoice.client.name}` : `Hi ${invoice.client.name}`;
+        const actionText = isReminder ? `your invoice ${invoice.invoiceNumber} is awaiting payment` : `your invoice ${invoice.invoiceNumber} is ready`;
+        
         const text = encodeURIComponent(
-          `Hi ${invoice.client.name}, your invoice ${invoice.invoiceNumber} is ready: ${publicUrl}`,
+          `${greeting}, ${actionText}: ${publicUrl}. Please ignore if already paid.`,
         );
         const waLink = `https://wa.me/${invoice.client.phone?.replace(/\D/g, "")}?text=${text}`;
         return { success: true, waLink };

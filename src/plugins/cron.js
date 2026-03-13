@@ -56,7 +56,7 @@ async function cronPlugin(fastify, opts) {
           };
         }
 
-        const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+        const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/['"]/g, "").replace(/\/$/, "") : "http://localhost:3000";
         const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
         for (const invoice of pendingInvoices) {
@@ -123,15 +123,23 @@ async function cronPlugin(fastify, opts) {
               // Usage check for Email reminder
               await fastify.usage.checkAndIncrement(user.id, "emailReminder");
 
-              await fastify.mailer.sendMail({
+              const { getInvoiceEmailTemplate } = require("../utils/emailTemplates");
+              const html = getInvoiceEmailTemplate({
+                clientName: invoice.client.name,
+                senderName: user.name || "Our Company",
+                senderCompany: user.companyName,
+                invoiceNumber: invoice.invoiceNumber || `#${invoice.id}`,
+                amount: invoice.amount,
+                currency: invoice.currency,
+                dueDate: invoice.dueDate,
+                status: invoice.status === "Pending" && new Date(invoice.dueDate) < new Date() ? "Overdue" : invoice.status,
+                publicUrl: invoiceUrl,
+              });
+
+              await fastify.email.send({
                 to: invoice.client.email,
                 subject: `Reminder: Invoice #${invoice.invoiceNumber || invoice.id} from ${user.companyName || user.name}`,
-                text: message,
-                html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-                        <h2 style="color: #0f172a;">Invoice Reminder</h2>
-                        <p>${message.replace(/\n/g, "<br>")}</p>
-                        <a href="${invoiceUrl}" style="display: inline-block; background: #0f172a; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; margin-top: 20px;">View & Pay Invoice</a>
-                       </div>`,
+                html,
               });
 
               await fastify.prisma.invoice.update({

@@ -30,6 +30,7 @@
     "nodemailer": "^8.0.2",
     "prisma": "^6.4.1",
     "puppeteer": "^24.38.0",
+    "resend": "^6.9.3",
     "twilio": "^5.12.2"
   }
 }

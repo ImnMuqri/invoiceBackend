@@ -1,7 +1,7 @@
 const fastify = require("fastify")({ logger: true });
 const path = require("path");
 const autoload = require("@fastify/autoload");
-require("dotenv").config();
+require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 async function build() {
   // Register Sensible for better error handling
@@ -32,8 +32,8 @@ async function build() {
   // Register Puppeteer plugin
   await fastify.register(require("./src/plugins/puppeteer"));
 
-  // Register Mailer plugin
-  await fastify.register(require("./src/plugins/mailer"));
+  // Register Email plugin (Resend)
+  await fastify.register(require("./src/plugins/email"));
 
   // Register WhatsApp plugin
   await fastify.register(require("./src/plugins/whatsapp"));

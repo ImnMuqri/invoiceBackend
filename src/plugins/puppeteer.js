@@ -14,10 +14,13 @@ async function puppeteerPlugin(fastify, opts) {
 
     const page = await browser.newPage();
     try {
-      await page.goto(url, { waitUntil: "networkidle0" });
+      await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
 
-      // Wait for any animations or dynamic content
-      await new Promise((r) => setTimeout(r, 500));
+      // Wait for the invoice content to be rendered
+      await page.waitForSelector("#invoice-content", { visible: true, timeout: 5000 });
+
+      // Wait a tiny bit more for fonts/animations to settle
+      await new Promise((r) => setTimeout(r, 200));
 
       const pdf = await page.pdf({
         format: "A4",

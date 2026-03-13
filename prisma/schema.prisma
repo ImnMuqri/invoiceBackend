@@ -67,6 +67,7 @@ model Invoice {
   invoiceName               String?
   subject                   String?
   fromName                  String?
+  fromCompanyName           String?
   fromEmail                 String?
   fromAddress               String?
   date                      DateTime      @default(now())
