@@ -157,34 +157,36 @@ async function dashboardRoutes(fastify, opts) {
       const usageLimits = PLAN_LIMITS[plan] || PLAN_LIMITS.FREE;
 
       // AI Insights logic
-      const insights = [];
-      const overdueInvoices = await prisma.invoice.findMany({
-        where: {
-          status: "Pending",
-          dueDate: { lt: now },
-          userId: request.user.id,
-        },
-        include: { client: true },
-        take: 3,
-      });
-
-      overdueInvoices.forEach((inv) => {
-        insights.push({
-          type: "chaser",
-          id: inv.id,
-          title: `Overdue: ${inv.client.name}`,
-          description: `Invoice ${inv.invoiceNumber || inv.id} is overdue by ${Math.floor((now - new Date(inv.dueDate)) / (1000 * 60 * 60 * 24))} days.`,
-          action: "Send Chaser",
+      let insights = [];
+      if (plan !== "FREE") {
+        const overdueInvoices = await prisma.invoice.findMany({
+          where: {
+            status: "Pending",
+            dueDate: { lt: now },
+            userId: request.user.id,
+          },
+          include: { client: true },
+          take: 3,
         });
-      });
 
-      if (insights.length === 0) {
-        insights.push({
-          type: "info",
-          title: "All caught up!",
-          description: "No urgent chasers needed right now. Good job!",
-          action: "View All",
+        overdueInvoices.forEach((inv) => {
+          insights.push({
+            type: "chaser",
+            id: inv.id,
+            title: `Overdue: ${inv.client.name}`,
+            description: `Invoice ${inv.invoiceNumber || inv.id} is overdue by ${Math.floor((now - new Date(inv.dueDate)) / (1000 * 60 * 60 * 24))} days.`,
+            action: "Send Chaser",
+          });
         });
+
+        if (insights.length === 0) {
+          insights.push({
+            type: "info",
+            title: "All caught up!",
+            description: "No urgent chasers needed right now. Good job!",
+            action: "View All",
+          });
+        }
       }
 
       return {

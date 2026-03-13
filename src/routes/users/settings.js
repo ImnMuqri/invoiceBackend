@@ -29,6 +29,31 @@ async function settingsRoutes(fastify, opts) {
   fastify.put("/", async (request, reply) => {
     const data = request.body;
 
+    // Check if user is FREE before allowing WhatsApp settings updates
+    const whatsappFields = [
+      "whatsappSendTemplate",
+      "whatsappReminderTemplate",
+      "whatsappMode",
+      "twilioSid",
+      "twilioAuthToken",
+      "twilioPhoneNumber",
+    ];
+
+    const isUpdatingWhatsapp = whatsappFields.some(
+      (field) => data[field] !== undefined,
+    );
+
+    if (isUpdatingWhatsapp) {
+      const user = await prisma.user.findUnique({
+        where: { id: request.user.id },
+        select: { plan: true },
+      });
+
+      if (user.plan === "FREE") {
+        return reply.forbidden("Upgrade to Pro to configure WhatsApp settings");
+      }
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id: request.user.id },
       data: {

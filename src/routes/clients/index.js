@@ -101,6 +101,18 @@ async function clientRoutes(fastify, opts) {
     });
 
     try {
+      // Check if user is FREE before allowing chaser enablement
+      if (data.autoChaser || data.autoEmailChaser) {
+        const user = await prisma.user.findUnique({
+          where: { id: request.user.id },
+          select: { plan: true },
+        });
+
+        if (user.plan === "FREE") {
+          return reply.forbidden("Upgrade to Pro to enable automated chasers");
+        }
+      }
+
       const client = await prisma.client.update({
         where: { id, userId: request.user.id },
         data,

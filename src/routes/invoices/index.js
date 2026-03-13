@@ -189,6 +189,15 @@ async function invoiceRoutes(fastify, opts) {
           return reply.internalServerError("Failed to send email");
         }
       } else if (method === "whatsapp") {
+        const user = await prisma.user.findUnique({
+          where: { id: request.user.id },
+          select: { plan: true },
+        });
+
+        if (user.plan === "FREE") {
+          return reply.forbidden("Upgrade to Pro to send invoices via WhatsApp");
+        }
+
         // For WhatsApp, we return a sharing link
         // This is usually handled on the frontend for better UX (opening the app)
         // but we can provide the formatted text/link here.
