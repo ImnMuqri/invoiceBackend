@@ -58,7 +58,7 @@ async function aiRoutes(fastify, opts) {
         update: parsedUpdate,
       };
     } catch (error) {
-      console.error("Groq parsing error:", error);
+      fastify.log.error("Groq parsing error:", error);
       return reply.internalServerError(
         error.message || "Failed to parse instructions with AI.",
       );

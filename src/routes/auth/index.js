@@ -30,11 +30,11 @@ async function authRoutes(fastify, opts) {
 
     // Generate Tokens
     const accessToken = fastify.jwt.sign(
-      { id: user.id, email: user.email },
+      { id: user.id, email: user.email, role: user.role },
       { expiresIn: "15m" },
     );
     const refreshToken = fastify.jwt.sign(
-      { id: user.id, email: user.email },
+      { id: user.id, email: user.email, role: user.role },
       { expiresIn: "7d" },
     );
 
@@ -62,6 +62,10 @@ async function authRoutes(fastify, opts) {
       return reply.unauthorized("Invalid email or password");
     }
 
+    if (!user.isActive) {
+      return reply.unauthorized("Account is disabled. Please contact support.");
+    }
+
     // Compare passwords
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
@@ -70,11 +74,11 @@ async function authRoutes(fastify, opts) {
 
     // Generate Tokens
     const accessToken = fastify.jwt.sign(
-      { id: user.id, email: user.email },
+      { id: user.id, email: user.email, role: user.role },
       { expiresIn: "15m" },
     );
     const refreshToken = fastify.jwt.sign(
-      { id: user.id, email: user.email },
+      { id: user.id, email: user.email, role: user.role },
       { expiresIn: "7d" },
     );
 
@@ -86,6 +90,7 @@ async function authRoutes(fastify, opts) {
         email: user.email,
         name: user.name,
         plan: user.plan,
+        role: user.role,
       },
     };
   });
@@ -100,8 +105,18 @@ async function authRoutes(fastify, opts) {
 
     try {
       const decoded = await fastify.jwt.verify(refreshToken);
+      
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        select: { isActive: true }
+      });
+
+      if (!user || !user.isActive) {
+        return reply.unauthorized("Account is disabled or does not exist");
+      }
+
       const accessToken = fastify.jwt.sign(
-        { id: decoded.id, email: decoded.email },
+        { id: decoded.id, email: decoded.email, role: decoded.role },
         { expiresIn: "15m" },
       );
 

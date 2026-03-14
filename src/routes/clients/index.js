@@ -112,7 +112,7 @@ async function clientRoutes(fastify, opts) {
       });
       return { success: true, message: "Client deleted successfully" };
     } catch (err) {
-      console.error("Error deleting client:", err);
+      fastify.log.error("Error deleting client:", err);
       return reply.internalServerError("Failed to delete client");
     }
   });
@@ -186,7 +186,7 @@ async function clientRoutes(fastify, opts) {
       });
       return { ...client, message: "Client updated successfully" };
     } catch (err) {
-      console.error("Error updating client:", err);
+      fastify.log.error("Error updating client:", err);
       return reply.internalServerError("Failed to update client");
     }
   });
