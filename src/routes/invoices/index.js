@@ -7,7 +7,21 @@ async function invoiceRoutes(fastify, opts) {
     const id = Number(request.params.id);
     const invoice = await prisma.invoice.findUnique({
       where: { id },
-      include: { client: true, items: true },
+      include: { 
+        client: true, 
+        items: true,
+        user: {
+          select: {
+            paymentProviders: {
+              where: { isActive: true, isPreferred: true },
+              select: {
+                id: true,
+                provider: true
+              }
+            }
+          }
+        }
+      },
     });
     if (!invoice) {
       return reply.notFound("Invoice not found");
@@ -195,7 +209,8 @@ async function invoiceRoutes(fastify, opts) {
           // Generate PDF
           // For local development, we must use localhost so Puppeteer can reach the local frontend
           // Even if FRONTEND_URL is set to production, local Puppeteer can't reach local data on a production URL.
-          const isLocal = !process.env.NODE_ENV || process.env.NODE_ENV === "development" || frontendUrl.includes("localhost");
+          // Simplified: check if we are local based on the frontend URL
+          const isLocal = frontendUrl.includes("localhost") || frontendUrl.includes("127.0.0.1");
           const pdfBaseUrl = isLocal ? "http://localhost:3000" : frontendUrl;
           const pdfGenerateUrl = `${pdfBaseUrl.replace(/\/$/, "")}/invoices/${id}/export`;
           
@@ -210,6 +225,11 @@ async function invoiceRoutes(fastify, opts) {
           
           fastify.log.info({ pdfSize: pdfBuffer?.length }, "PDF generated for attachment");
 
+          // Check if user has a preferred payment provider
+          const preferredProvider = await prisma.paymentProvider.findFirst({
+            where: { userId: request.user.id, isActive: true, isPreferred: true }
+          });
+
           // Get template
           const { getInvoiceEmailTemplate } = require("../../utils/emailTemplates");
           const html = getInvoiceEmailTemplate({
@@ -222,6 +242,7 @@ async function invoiceRoutes(fastify, opts) {
             dueDate: invoice.dueDate,
             status: isReminder ? "Payment Reminder" : (invoice.status === "Pending" && new Date(invoice.dueDate) < new Date() ? "Overdue" : invoice.status),
             publicUrl,
+            isPayable: !!preferredProvider
           });
 
           const subjectPrefix = isReminder ? "REMINDER: " : "";

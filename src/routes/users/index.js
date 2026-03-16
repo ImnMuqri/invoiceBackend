@@ -85,6 +85,7 @@ async function userRoutes(fastify, opts) {
 
   // Register settings routes
   fastify.register(require("./settings"), { prefix: "/settings" });
+  fastify.register(require("./payments"), { prefix: "/payments" });
 }
 
 module.exports = userRoutes;

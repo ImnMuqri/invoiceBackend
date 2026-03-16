@@ -11,6 +11,7 @@ const getInvoiceEmailTemplate = ({
   dueDate,
   status,
   publicUrl,
+  isPayable = false,
 }) => {
   const statusColor = status === "Overdue" ? "#ef4444" : "#6366f1";
   const statusBg = status === "Overdue" ? "#fee2e2" : "#eef2ff";
@@ -69,7 +70,7 @@ const getInvoiceEmailTemplate = ({
         </div>
 
         <div style="text-align: center;">
-          <a href="${publicUrl}" class="button">View & Pay Invoice</a>
+          <a href="${publicUrl}" class="button">${isPayable ? "View & Pay Invoice" : "View Invoice"}</a>
         </div>
 
         <p style="font-size: 14px; color: #64748b; text-align: center; margin-bottom: 32px;">
