@@ -4,16 +4,13 @@ const autoload = require("@fastify/autoload");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 async function build() {
-  const isDev = process.env.NODE_ENV === "development";
 
   // Register Sensible
   await fastify.register(require("@fastify/sensible"));
 
   // Register CORS
   await fastify.register(require("@fastify/cors"), {
-    origin: isDev 
-      ? ["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://127.0.0.1:3000"] 
-      : ["https://invokita.pages.dev", "https://invoice.railway.app"], // Allow both production frontend and railway domain if needed
+    origin: ["https://invokita.pages.dev", "http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://127.0.0.1:3000"],
     methods: ["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS", "HEAD"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
     credentials: true,
@@ -23,7 +20,7 @@ async function build() {
   // Register Helmet
   await fastify.register(require("@fastify/helmet"), {
     contentSecurityPolicy: false,
-    hsts: !isDev,
+    hsts: true,
   });
 
   // Register Rate Limit
@@ -83,8 +80,7 @@ const start = async () => {
   try {
     const app = await build();
     const port = process.env.PORT || 3002;
-    const host = isDev ? "127.0.0.1" : "0.0.0.0";
-    await app.listen({ port, host });
+    await app.listen({ port, host: "0.0.0.0" });
   } catch (err) {
     process.exit(1);
   }
