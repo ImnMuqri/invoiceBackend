@@ -13,7 +13,7 @@ async function build() {
   await fastify.register(require("@fastify/cors"), {
     origin: isDev 
       ? ["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://127.0.0.1:3000"] 
-      : ["https://invokita.pages.dev"],
+      : ["https://invokita.pages.dev", "https://invoice.railway.app"], // Allow both production frontend and railway domain if needed
     methods: ["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS", "HEAD"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
     credentials: true,
@@ -83,7 +83,8 @@ const start = async () => {
   try {
     const app = await build();
     const port = process.env.PORT || 3002;
-    await app.listen({ port, host: "127.0.0.1" });
+    const host = isDev ? "127.0.0.1" : "0.0.0.0";
+    await app.listen({ port, host });
   } catch (err) {
     process.exit(1);
   }
