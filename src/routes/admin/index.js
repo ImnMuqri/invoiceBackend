@@ -15,6 +15,11 @@ async function adminRoutes(fastify, opts) {
           _count: {
             select: { invoices: true, clients: true },
           },
+          subscriptions: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { status: true, subscriptionEnds: true },
+          },
         },
       });
       return users;
@@ -51,7 +56,24 @@ async function adminRoutes(fastify, opts) {
   fastify.patch("/users/:id", async (request, reply) => {
     try {
       const { id } = request.params;
-      const { plan, role, isActive } = request.body;
+      const { plan, role, isActive, subscriptionEnds } = request.body;
+
+      if (subscriptionEnds !== undefined) {
+        // Update their latest subscription if they have one
+        const latestSub = await prisma.subscription.findFirst({
+           where: { userId: parseInt(id) },
+           orderBy: { createdAt: 'desc' }
+        });
+        if (latestSub) {
+           await prisma.subscription.update({
+             where: { id: latestSub.id },
+             data: { 
+               subscriptionEnds: subscriptionEnds ? new Date(subscriptionEnds) : null,
+               status: "ACTIVE" 
+             }
+           });
+        }
+      }
 
       const updatedUser = await prisma.user.update({
         where: { id: parseInt(id) },

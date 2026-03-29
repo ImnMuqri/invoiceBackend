@@ -14,10 +14,17 @@ async function xenditWebhooks(fastify, opts) {
       if (!data || !data.reference_id) return;
 
       const eventType = payload.event || "";
-      const isActivation = eventType === "recurring.plan.activated" || data.status === "ACTIVE";
+      const isActivation =
+        eventType === "recurring.cycle.created" || data.status === "ACTIVE";
 
       if (isActivation) {
-        const referenceId = data.reference_id || ""; // e.g., sub_1_PRO_123456
+        let referenceId = data.reference_id || ""; // e.g., sub_1_PRO_123456
+        
+        // If the webhook is a cycle event, the reference_id might be "schedule_sub_..."
+        if (referenceId.startsWith("schedule_")) {
+          referenceId = referenceId.replace("schedule_", "");
+        }
+
         const parts = referenceId.split("_");
         if (parts[0] === "sub" && parts.length >= 3) {
           const userId = parseInt(parts[1], 10);
@@ -38,26 +45,27 @@ async function xenditWebhooks(fastify, opts) {
           nextMonth.setMonth(nextMonth.getMonth() + 1);
 
           await prisma.subscription.updateMany({
-            where: { 
-              userId: userId, 
-              plan: planName, 
-              status: "PENDING" 
+            where: {
+              userId: userId,
+              plan: planName,
+              status: "PENDING",
             },
             data: {
               status: "ACTIVE",
               xenditSubscriptionId: xenditSubscriptionId,
               subscriptionStart: now,
-              subscriptionEnds: nextMonth
-            }
+              subscriptionEnds: data.scheduled_timestamp ? new Date(data.scheduled_timestamp) : nextMonth,
+            },
           });
 
-          fastify.log.info(`Upgraded User ${userId} to ${planName} via Xendit webhook`);
+          fastify.log.info(
+            `Upgraded User ${userId} to ${planName} via Xendit webhook`,
+          );
         }
       } else if (eventType === "payment.succeeded") {
         // If it's a payment cycle success
         // Handle renewal logic if needed, or rely on recurring.plan hook
       }
-
     } catch (err) {
       fastify.log.error("Xendit Webhook processing error:", err);
     }
