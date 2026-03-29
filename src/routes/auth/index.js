@@ -105,6 +105,8 @@ async function authRoutes(fastify, opts) {
         name: user.name,
         plan: user.plan,
         role: user.role,
+        companyPhone: user.companyPhone,
+        reminderInterval: user.reminderInterval,
         onboardingCompleted: user.onboardingCompleted,
         subscriptions: user.subscriptions,
       },
