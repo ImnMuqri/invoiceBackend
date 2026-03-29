@@ -25,6 +25,16 @@ async function userRoutes(fastify, opts) {
         aiUsed: true,
         lastResetDate: true,
         createdAt: true,
+        subscriptions: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            plan: true,
+            status: true,
+            subscriptionStart: true,
+            subscriptionEnds: true,
+          }
+        }
       },
     });
 
