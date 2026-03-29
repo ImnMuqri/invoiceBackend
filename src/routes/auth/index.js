@@ -58,6 +58,18 @@ async function authRoutes(fastify, opts) {
 
     const user = await prisma.user.findUnique({
       where: { email },
+      include: {
+        subscriptions: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            plan: true,
+            status: true,
+            subscriptionStart: true,
+            subscriptionEnds: true,
+          }
+        }
+      }
     });
 
     if (!user) {
@@ -94,11 +106,7 @@ async function authRoutes(fastify, opts) {
         plan: user.plan,
         role: user.role,
         onboardingCompleted: user.onboardingCompleted,
-        companyName: user.companyName,
-        companyEmail: user.companyEmail,
-        phoneNumber: user.phoneNumber,
-        currentStatus: user.currentStatus,
-        heardAbout: user.heardAbout,
+        subscriptions: user.subscriptions,
       },
     };
   });

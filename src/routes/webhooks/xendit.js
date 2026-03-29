@@ -8,16 +8,15 @@ async function xenditWebhooks(fastify, opts) {
     reply.send({ received: true });
 
     try {
-      // Xendit Recurring webhook types:
-      // "recurring.plan.activated"
-      // "payment.succeeded" for recurring
+      // Xendit Recurring webhook payloads might be wrapped { event, data } or just the object directly
+      const data = payload.data || payload;
 
-      const eventType = payload.event;
-      const data = payload.data;
+      if (!data || !data.reference_id) return;
 
-      if (!data) return;
+      const eventType = payload.event || "";
+      const isActivation = eventType === "recurring.plan.activated" || data.status === "ACTIVE";
 
-      if (eventType === "recurring.plan.activated") {
+      if (isActivation) {
         const referenceId = data.reference_id || ""; // e.g., sub_1_PRO_123456
         const parts = referenceId.split("_");
         if (parts[0] === "sub" && parts.length >= 3) {

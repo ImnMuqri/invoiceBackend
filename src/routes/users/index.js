@@ -20,7 +20,6 @@ async function userRoutes(fastify, opts) {
         companyEmail: true,
         address: true,
         defaultCurrency: true,
-        defaultTaxRate: true,
         plan: true,
         waSendsUsed: true,
         emailSendsUsed: true,
@@ -65,7 +64,6 @@ async function userRoutes(fastify, opts) {
         companyEmail: data.companyEmail,
         address: data.address,
         defaultCurrency: data.defaultCurrency,
-        defaultTaxRate: data.defaultTaxRate,
       },
       select: {
         id: true,
@@ -78,7 +76,6 @@ async function userRoutes(fastify, opts) {
         companyEmail: true,
         address: true,
         defaultCurrency: true,
-        defaultTaxRate: true,
         plan: true,
       },
     });
