@@ -17,6 +17,10 @@ model User {
   email                     String   @unique
   password                  String
   name                      String?
+  phoneNumber               String?
+  heardAbout                String?
+  currentStatus             String?
+  onboardingCompleted       Boolean  @default(false)
   companyName               String?
   companyEmail              String?
   address                   String?
