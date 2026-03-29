@@ -28,6 +28,8 @@ model User {
   twilioSid                 String?
   twilioAuthToken           String?
   twilioPhoneNumber         String?
+  xenditCustomerId          String?
+  xenditSubscriptionId      String?
   plan                      String   @default("FREE")
   role                      Role     @default(USER)
   isActive                  Boolean  @default(true)

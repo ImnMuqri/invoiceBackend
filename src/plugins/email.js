@@ -16,10 +16,13 @@ async function emailPlugin(fastify, opts) {
   const send = async ({ to, subject, html, text, from, attachments }) => {
     try {
       if (attachments && attachments.length > 0) {
-        fastify.log.info({ attachmentCount: attachments.length }, "Sending email with attachments");
+        fastify.log.info(
+          { attachmentCount: attachments.length },
+          "Sending email with attachments",
+        );
       }
       const { data, error } = await resend.emails.send({
-        from: from || "InvoKita <onboarding@resend.dev>", // Default for unverified domains
+        from: from || "InvoKita <invokita@resend.dev>", // Default for unverified domains
         to,
         subject,
         html,

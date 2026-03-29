@@ -71,16 +71,51 @@ async function userRoutes(fastify, opts) {
       return reply.badRequest("Invalid plan");
     }
 
-    const updatedUser = await prisma.user.update({
+    const { createRecurringPlan } = require("../../utils/xendit");
+    const user = await prisma.user.findUnique({
       where: { id: request.user.id },
-      data: { plan },
-      select: {
-        id: true,
-        plan: true,
-      },
     });
 
-    return { ...updatedUser, message: `Successfully subscribed to ${plan} plan!` };
+    if (plan === "FREE") {
+      // Direct downgrade to free
+      const updatedUser = await prisma.user.update({
+        where: { id: user.id },
+        data: { plan: "FREE", xenditSubscriptionId: null },
+      });
+      return { plan: "FREE", message: "Successfully downgraded to FREE plan." };
+    }
+
+    try {
+      // Create xendit recurring plan
+      const { plan: xenditPlan, customerId } = await createRecurringPlan(user, plan);
+
+      // Update user with customerId if newly created
+      if (customerId && customerId !== user.xenditCustomerId) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { xenditCustomerId: customerId },
+        });
+      }
+
+      // Xendit plan response will contain a checkout URL (actions array)
+      const authUrlAction = xenditPlan.actions?.find((a) => a.action === "AUTH");
+      const checkoutUrl = authUrlAction ? authUrlAction.url : null;
+
+      if (!checkoutUrl) {
+        return reply.internalServerError("Could not generate Xendit checkout URL");
+      }
+
+      return {
+        plan,
+        checkoutUrl,
+        message: "Redirecting to payment Gateway...",
+      };
+    } catch (err) {
+      request.log.error(err);
+      return reply.internalServerError(
+        "Failed to create Xendit subscription: " + (err.response?.data?.message || err.message)
+      );
+    }
   });
 
   // Register settings routes
