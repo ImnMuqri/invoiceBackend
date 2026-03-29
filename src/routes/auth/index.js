@@ -46,6 +46,8 @@ async function authRoutes(fastify, opts) {
         email: user.email,
         name: user.name,
         plan: user.plan,
+        role: user.role,
+        onboardingCompleted: user.onboardingCompleted,
       },
     };
   });
@@ -91,6 +93,12 @@ async function authRoutes(fastify, opts) {
         name: user.name,
         plan: user.plan,
         role: user.role,
+        onboardingCompleted: user.onboardingCompleted,
+        companyName: user.companyName,
+        companyEmail: user.companyEmail,
+        phoneNumber: user.phoneNumber,
+        currentStatus: user.currentStatus,
+        heardAbout: user.heardAbout,
       },
     };
   });
@@ -105,10 +113,10 @@ async function authRoutes(fastify, opts) {
 
     try {
       const decoded = await fastify.jwt.verify(refreshToken);
-      
+
       const user = await prisma.user.findUnique({
         where: { id: decoded.id },
-        select: { isActive: true }
+        select: { isActive: true },
       });
 
       if (!user || !user.isActive) {
