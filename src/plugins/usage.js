@@ -6,9 +6,9 @@ async function usagePlugin(fastify, opts) {
   const LIMITS = {
     FREE: {
       waSends: 0,
-      emailSends: 0,
+      emailSends: 5,
       waReminders: 0,
-      emailReminders: 0,
+      emailReminders: 5,
       ai: 0,
     },
     PRO: {

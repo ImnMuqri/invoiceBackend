@@ -77,6 +77,19 @@ async function createRecurringPlan(user, planName) {
     }
   );
 
+  const { PrismaClient } = require("@prisma/client");
+  const prisma = new PrismaClient();
+
+  await prisma.subscription.create({
+    data: {
+      userId: user.id,
+      xenditSubscriptionId: response.data.id || referenceId,
+      plan: planName,
+      amount: amount,
+      status: "PENDING" // Will be ACTIVE upon successful webhook
+    }
+  });
+
   return { plan: response.data, customerId };
 }
 

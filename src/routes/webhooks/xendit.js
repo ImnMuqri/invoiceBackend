@@ -32,6 +32,26 @@ async function xenditWebhooks(fastify, opts) {
               xenditSubscriptionId: xenditSubscriptionId,
             },
           });
+
+          // Also update the dedicated Subscription table record
+          const now = new Date();
+          const nextMonth = new Date();
+          nextMonth.setMonth(nextMonth.getMonth() + 1);
+
+          await prisma.subscription.updateMany({
+            where: { 
+              userId: userId, 
+              plan: planName, 
+              status: "PENDING" 
+            },
+            data: {
+              status: "ACTIVE",
+              xenditSubscriptionId: xenditSubscriptionId,
+              subscriptionStart: now,
+              subscriptionEnds: nextMonth
+            }
+          });
+
           fastify.log.info(`Upgraded User ${userId} to ${planName} via Xendit webhook`);
         }
       } else if (eventType === "payment.succeeded") {

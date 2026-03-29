@@ -44,6 +44,7 @@ model User {
   clients                   Client[]
   invoices                  Invoice[]
   paymentProviders          PaymentProvider[]
+  subscriptions             Subscription[]
 }
 
 model PaymentProvider {
@@ -123,4 +124,19 @@ model InvoiceItem {
   total     Float
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Subscription {
+  id                   Int      @id @default(autoincrement())
+  userId               Int
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  xenditSubscriptionId String?  @unique
+  plan                 String
+  amount               Float
+  currency             String    @default("MYR")
+  status               String    @default("PENDING")
+  subscriptionStart    DateTime?
+  subscriptionEnds     DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime @updatedAt
 }
