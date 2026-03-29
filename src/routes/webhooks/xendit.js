@@ -29,7 +29,8 @@ async function xenditWebhooks(fastify, opts) {
         if (parts[0] === "sub" && parts.length >= 3) {
           const userId = parseInt(parts[1], 10);
           const planName = parts[2];
-          const xenditSubscriptionId = data.id;
+          // Safely extract the root Plan ID even if this is a cycle event
+          const xenditSubscriptionId = data.plan_id || data.id;
 
           await prisma.user.update({
             where: { id: userId },
@@ -52,7 +53,6 @@ async function xenditWebhooks(fastify, opts) {
             },
             data: {
               status: "ACTIVE",
-              xenditSubscriptionId: xenditSubscriptionId,
               subscriptionStart: now,
               subscriptionEnds: data.scheduled_timestamp ? new Date(data.scheduled_timestamp) : nextMonth,
             },
