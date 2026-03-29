@@ -5,20 +5,23 @@ async function usagePlugin(fastify, opts) {
 
   const LIMITS = {
     FREE: {
+      invoices: 5,
       waSends: 0,
       emailSends: 5,
       waReminders: 0,
-      emailReminders: 5,
+      emailReminders: 0,
       ai: 0,
     },
     PRO: {
+      invoices: 30,
       waSends: 30,
-      emailSends: 30,
-      waReminders: 100,
-      emailReminders: 100,
-      ai: 10,
+      emailSends: 50,
+      waReminders: 30,
+      emailReminders: 50,
+      ai: 20,
     },
     MAX: {
+      invoices: 100,
       waSends: 100,
       emailSends: 100,
       waReminders: 100,
@@ -52,6 +55,7 @@ async function usagePlugin(fastify, opts) {
           waRemindersUsed: 0,
           emailRemindersUsed: 0,
           aiUsed: 0,
+          invoicesUsed: 0,
           lastResetDate: now,
         },
       });
@@ -61,6 +65,7 @@ async function usagePlugin(fastify, opts) {
       user.waRemindersUsed = 0;
       user.emailRemindersUsed = 0;
       user.aiUsed = 0;
+      user.invoicesUsed = 0;
     }
 
     const fieldMap = {
@@ -69,6 +74,7 @@ async function usagePlugin(fastify, opts) {
       waReminder: "waRemindersUsed",
       emailReminder: "emailRemindersUsed",
       ai: "aiUsed",
+      invoice: "invoicesUsed",
     };
 
     const limitMap = {
@@ -77,6 +83,7 @@ async function usagePlugin(fastify, opts) {
       waReminder: "waReminders",
       emailReminder: "emailReminders",
       ai: "ai",
+      invoice: "invoices",
     };
 
     const countField = fieldMap[type];

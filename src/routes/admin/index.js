@@ -73,8 +73,6 @@ async function adminRoutes(fastify, opts) {
   fastify.delete("/users/:id", async (request, reply) => {
     try {
       const { id } = request.params;
-
-      // In a real SaaS, you might want to soft-delete or handle cascades carefully
       await prisma.user.delete({
         where: { id: parseInt(id) },
       });

@@ -12,6 +12,7 @@ async function invoiceRoutes(fastify, opts) {
         items: true,
         user: {
           select: {
+            plan: true,
             paymentProviders: {
               where: { isActive: true, isPreferred: true },
               select: {
@@ -72,6 +73,14 @@ async function invoiceRoutes(fastify, opts) {
 
     // POST create invoice
     protectedInstance.post("/", async (request, reply) => {
+      // Enforce usage limits BEFORE doing anything else
+      try {
+        await fastify.usage.checkAndIncrement(request.user.id, "invoice");
+      } catch (err) {
+        if (err.statusCode === 403) return reply.forbidden(err.message);
+        throw err;
+      }
+
       const { clientId, items, template, fromCompanyName, ...invoiceData } =
         request.body;
 
