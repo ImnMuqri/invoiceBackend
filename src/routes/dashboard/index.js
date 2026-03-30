@@ -1,4 +1,5 @@
 async function dashboardRoutes(fastify, opts) {
+  console.log("DASHBOARD ROUTES REGISTERING...");
   const { prisma } = fastify;
   const { convertAmount } = require("../../utils/currency");
 
@@ -157,6 +158,7 @@ async function dashboardRoutes(fastify, opts) {
   });
 
   fastify.get("/forecast", async (request, reply) => {
+    console.log("FORECAST REQUEST RECEIVED", request.query);
     try {
       const { range, month, year } = request.query;
       const now = new Date();
@@ -188,7 +190,7 @@ async function dashboardRoutes(fastify, opts) {
           status: "Paid",
           date: { gte: historyStartDate, lte: now },
         },
-        select: { date: true, amount: true, currency: true },
+        include: { client: true },
       });
 
       const pendingInvoices = await prisma.invoice.findMany({
@@ -197,24 +199,59 @@ async function dashboardRoutes(fastify, opts) {
           status: { in: ["Pending", "Overdue"] },
           dueDate: { gte: now, lte: forecastEndDate },
         },
-        select: { dueDate: true, amount: true, currency: true },
+        include: { client: true },
       });
 
-      const groupData = (data, dateKey) => {
+      const groupData = (data, dateKey, start, end) => {
         const groups = {};
-        data.forEach((item) => {
+        
+        // Phase 1: Initialize all dates in range
+        let d = new Date(start);
+        d.setHours(12, 0, 0, 0); // Center in the day for robust keying
+        const last = new Date(end);
+        last.setHours(12, 0, 0, 0);
+        
+        while (d <= last) {
+          const key = d.toISOString().split("T")[0];
+          groups[key] = { amount: 0, details: [] };
+          d.setDate(d.getDate() + 1);
+        }
+
+        // Phase 2: Process actual data
+        for (const item of data) {
           const date = new Date(item[dateKey]);
           const key = date.toISOString().split("T")[0];
-          const converted = convertAmount(item.amount, item.currency, targetCurrency);
-          groups[key] = (groups[key] || 0) + converted;
+          
+          if (groups[key]) {
+            const converted = convertAmount(item.amount, item.currency, targetCurrency);
+            groups[key].amount = (groups[key].amount || 0) + converted;
+            
+            // Ensure details are ALWAYS pushed if amount is added
+            groups[key].details.push({
+              clientName: item.client?.name || "N/A",
+              clientId: item.clientId || "Unknown",
+              invoiceNumber: item.invoiceNumber || item.id,
+              amount: parseFloat(converted.toFixed(2)),
+              dueDate: item.dueDate || item.date
+            });
+          }
+        }
+        
+        // Phase 3: Finalize and return as sorted array
+        return Object.keys(groups).sort().map((date) => {
+          const group = groups[date];
+          return { 
+            date, 
+            amount: parseFloat((group.amount || 0).toFixed(2)),
+            details: group.details.length > 0 ? group.details : []
+          };
         });
-        return Object.keys(groups).sort().map((date) => ({ date, amount: parseFloat(groups[date].toFixed(2)) }));
       };
 
       return {
         cashflow: {
-          history: groupData(paidInvoices, "date"),
-          forecast: groupData(pendingInvoices, "dueDate"),
+          history: groupData(paidInvoices, "date", historyStartDate, now),
+          forecast: groupData(pendingInvoices, "dueDate", now, forecastEndDate),
         },
       };
     } catch (error) {
