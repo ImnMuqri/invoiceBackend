@@ -13,6 +13,10 @@ async function invoiceRoutes(fastify, opts) {
         user: {
           select: {
             plan: true,
+            manualBankName: true,
+            manualAccountNumber: true,
+            manualAccountName: true,
+            manualQrCode: true,
             paymentProviders: {
               where: { isActive: true, isPreferred: true },
               select: {
@@ -111,7 +115,7 @@ async function invoiceRoutes(fastify, opts) {
       const updatedInvoice = await prisma.invoice.update({
         where: { id: invoice.id },
         data: {
-          invoiceNumber: `INV-${invoice.id.toString().padStart(4, "0")}`,
+          invoiceNumber: `INVK-${invoice.id.toString().padStart(4, "0")}`,
         },
         include: { items: true, client: true },
       });
@@ -143,7 +147,7 @@ async function invoiceRoutes(fastify, opts) {
         fromCompanyName,
         amount,
         template: template || "professional",
-        invoiceNumber: `INV-${id.toString().padStart(4, "0")}`,
+        invoiceNumber: `INVK-${id.toString().padStart(4, "0")}`,
       };
 
       if (clientId) {
@@ -267,6 +271,13 @@ async function invoiceRoutes(fastify, opts) {
               },
             ] : [],
           });
+
+          // Update last sent date
+          await prisma.invoice.update({
+            where: { id },
+            data: { emailLastSent: new Date() }
+          });
+
           return { success: true, message: isReminder ? "Reminder email sent" : "Email sent" };
         } catch (err) {
           fastify.log.error(err);
@@ -295,6 +306,13 @@ async function invoiceRoutes(fastify, opts) {
         const text = encodeURIComponent(
           `${greeting}, ${actionText}: ${publicUrl}. Please ignore if already paid.`,
         );
+
+        // Update last sent date (since we are generating the link to send)
+        await prisma.invoice.update({
+          where: { id },
+          data: { whatsappLastSent: new Date() }
+        });
+
         const waLink = `https://wa.me/${invoice.client.phone?.replace(/\D/g, "")}?text=${text}`;
         return { success: true, waLink };
       }

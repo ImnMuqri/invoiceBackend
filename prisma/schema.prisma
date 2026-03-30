@@ -38,6 +38,10 @@ model User {
   xenditSubscriptionId      String?
   plan                      String   @default("FREE")
   role                      Role     @default(USER)
+  manualBankName            String?
+  manualAccountNumber       String?
+  manualAccountName         String?
+  manualQrCode              String?
   isActive                  Boolean  @default(true)
   waSendsUsed               Int      @default(0)
   emailSendsUsed            Int      @default(0)
@@ -111,6 +115,8 @@ model Invoice {
   latePrediction            String?
   predictedDelayDays        Int?
   whatsappStatus            String        @default("Not Sent")
+  whatsappLastSent          DateTime?
+  emailLastSent             DateTime?
   whatsappLastReminderSent  DateTime?
   emailLastReminderSent     DateTime?
   template                  String        @default("professional")

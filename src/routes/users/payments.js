@@ -145,6 +145,41 @@ async function paymentRoutes(fastify, opts) {
 
     return { message: "Provider disconnected successfully" };
   });
+
+  // GET manual payment settings
+  fastify.get("/manual", async (request, reply) => {
+    const user = await prisma.user.findUnique({
+      where: { id: request.user.id },
+      select: {
+        manualBankName: true,
+        manualAccountNumber: true,
+        manualAccountName: true,
+        manualQrCode: true,
+      },
+    });
+    return user;
+  });
+
+  // PUT update manual payment settings
+  fastify.put("/manual", async (request, reply) => {
+    const data = request.body;
+    const updated = await prisma.user.update({
+      where: { id: request.user.id },
+      data: {
+        manualBankName: data.manualBankName,
+        manualAccountNumber: data.manualAccountNumber,
+        manualAccountName: data.manualAccountName,
+        manualQrCode: data.manualQrCode,
+      },
+    });
+    return {
+      manualBankName: updated.manualBankName,
+      manualAccountNumber: updated.manualAccountNumber,
+      manualAccountName: updated.manualAccountName,
+      manualQrCode: updated.manualQrCode,
+      message: "Manual payment settings updated successfully",
+    };
+  });
 }
 
 module.exports = paymentRoutes;

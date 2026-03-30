@@ -52,10 +52,10 @@ async function main() {
 
   // Create some invoices
   await prisma.invoice.upsert({
-    where: { id: "INV-2023-001" },
+    where: { id: "INVK-2023-001" },
     update: {},
     create: {
-      id: "INV-2023-001",
+      id: "INVK-2023-001",
       clientId: client1.id,
       date: new Date("2023-10-01"),
       dueDate: new Date("2023-10-15"),
@@ -68,10 +68,10 @@ async function main() {
   });
 
   await prisma.invoice.upsert({
-    where: { id: "INV-2023-002" },
+    where: { id: "INVK-2023-002" },
     update: {},
     create: {
-      id: "INV-2023-002",
+      id: "INVK-2023-002",
       clientId: client2.id,
       date: new Date("2023-11-01"),
       dueDate: new Date("2023-11-15"),
@@ -85,10 +85,10 @@ async function main() {
   });
 
   await prisma.invoice.upsert({
-    where: { id: "INV-2023-003" },
+    where: { id: "INVK-2023-003" },
     update: {},
     create: {
-      id: "INV-2023-003",
+      id: "INVK-2023-003",
       clientId: client3.id,
       date: new Date("2023-11-20"),
       dueDate: new Date("2023-12-05"),
