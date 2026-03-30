@@ -1,5 +1,4 @@
 async function dashboardRoutes(fastify, opts) {
-  console.log("DASHBOARD ROUTES REGISTERING...");
   const { prisma } = fastify;
   const { convertAmount } = require("../../utils/currency");
 
@@ -158,7 +157,6 @@ async function dashboardRoutes(fastify, opts) {
   });
 
   fastify.get("/forecast", async (request, reply) => {
-    console.log("FORECAST REQUEST RECEIVED", request.query);
     try {
       const { range, month, year } = request.query;
       const now = new Date();
@@ -207,10 +205,7 @@ async function dashboardRoutes(fastify, opts) {
         
         // Phase 1: Initialize all dates in range
         let d = new Date(start);
-        d.setHours(12, 0, 0, 0); // Center in the day for robust keying
         const last = new Date(end);
-        last.setHours(12, 0, 0, 0);
-        
         while (d <= last) {
           const key = d.toISOString().split("T")[0];
           groups[key] = { amount: 0, details: [] };
