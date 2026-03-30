@@ -200,39 +200,31 @@ async function dashboardRoutes(fastify, opts) {
         include: { client: true },
       });
 
-      const groupData = (data, dateKey, start, end) => {
+      const groupData = (data, dateKey) => {
         const groups = {};
         
-        // Phase 1: Initialize all dates in range
-        let d = new Date(start);
-        const last = new Date(end);
-        while (d <= last) {
-          const key = d.toISOString().split("T")[0];
-          groups[key] = { amount: 0, details: [] };
-          d.setDate(d.getDate() + 1);
-        }
-
-        // Phase 2: Process actual data
+        // Process actual data
         for (const item of data) {
           const date = new Date(item[dateKey]);
           const key = date.toISOString().split("T")[0];
           
-          if (groups[key]) {
-            const converted = convertAmount(item.amount, item.currency, targetCurrency);
-            groups[key].amount = (groups[key].amount || 0) + converted;
-            
-            // Ensure details are ALWAYS pushed if amount is added
-            groups[key].details.push({
-              clientName: item.client?.name || "N/A",
-              clientId: item.clientId || "Unknown",
-              invoiceNumber: item.invoiceNumber || item.id,
-              amount: parseFloat(converted.toFixed(2)),
-              dueDate: item.dueDate || item.date
-            });
+          if (!groups[key]) {
+            groups[key] = { amount: 0, details: [] };
           }
+
+          const converted = convertAmount(item.amount, item.currency, targetCurrency);
+          groups[key].amount = (groups[key].amount || 0) + converted;
+          
+          groups[key].details.push({
+            clientName: item.client?.name || "N/A",
+            clientId: item.clientId || "Unknown",
+            invoiceNumber: item.invoiceNumber || item.id,
+            amount: parseFloat(converted.toFixed(2)),
+            dueDate: item.dueDate || item.date
+          });
         }
         
-        // Phase 3: Finalize and return as sorted array
+        // Finalize and return as sorted array
         return Object.keys(groups).sort().map((date) => {
           const group = groups[date];
           return { 
@@ -245,8 +237,8 @@ async function dashboardRoutes(fastify, opts) {
 
       return {
         cashflow: {
-          history: groupData(paidInvoices, "date", historyStartDate, now),
-          forecast: groupData(pendingInvoices, "dueDate", now, forecastEndDate),
+          history: groupData(paidInvoices, "date"),
+          forecast: groupData(pendingInvoices, "dueDate"),
         },
       };
     } catch (error) {
