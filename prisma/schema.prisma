@@ -79,7 +79,6 @@ model Client {
   phone            String?
   address          String?
   company          String
-  riskScore        Int       @default(0)
   averageDelayDays Int       @default(0)
   totalRevenue     Float     @default(0.0)
   profitMargin     Float     @default(0.0)
@@ -110,7 +109,6 @@ model Invoice {
   status                    String        @default("Pending")
   currency                  String        @default("MYR")
   latePrediction            String?
-  riskScore                 Int?
   predictedDelayDays        Int?
   whatsappStatus            String        @default("Not Sent")
   whatsappLastReminderSent  DateTime?

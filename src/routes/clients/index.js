@@ -22,7 +22,6 @@ async function clientRoutes(fastify, opts) {
                 phone: { type: "string" },
                 address: { type: "string" },
                 company: { type: "string" },
-                riskScore: { type: "number" },
                 averageDelayDays: { type: "number" },
                 totalRevenue: { type: "number" },
                 profitMargin: { type: "number" },

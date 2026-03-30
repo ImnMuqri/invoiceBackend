@@ -5,13 +5,10 @@ async function dashboardRoutes(fastify, opts) {
   // Apply authentication to all routes in this plugin
   fastify.addHook("onRequest", fastify.authenticate);
 
-  fastify.get("/", async (request, reply) => {
+  fastify.get("/core", async (request, reply) => {
     try {
-      const range = parseInt(request.query.range) || 30;
       const now = new Date();
-      const rangeDate = new Date();
-      rangeDate.setDate(now.getDate() + range);
-
+      
       // Get user's default currency and plan
       const user = await prisma.user.findUnique({
         where: { id: request.user.id },
@@ -83,8 +80,6 @@ async function dashboardRoutes(fastify, opts) {
             where: { id: raw.clientId },
           });
           
-          // For top clients, we need to convert each paid invoice individually for accuracy
-          // since grouping by amount doesn't account for currency
           const clientPaidInvoices = await prisma.invoice.findMany({
             where: { clientId: raw.clientId, status: "Paid" }
           });
@@ -101,84 +96,6 @@ async function dashboardRoutes(fastify, opts) {
           };
         }),
       );
-
-      // Cashflow History - matching period in the past
-      const historyStartDate = new Date();
-      historyStartDate.setDate(now.getDate() - range);
-
-      const paidInvoices = await prisma.invoice.findMany({
-        where: {
-          userId: request.user.id,
-          status: "Paid",
-          date: { gte: historyStartDate, lte: now },
-        },
-        select: {
-          date: true,
-          amount: true,
-          currency: true,
-        },
-      });
-
-      // Forecast - invoices due within the range
-      const pendingInvoices = await prisma.invoice.findMany({
-        where: {
-          userId: request.user.id,
-          status: { in: ["Pending", "Overdue"] },
-          dueDate: { gte: now, lte: rangeDate },
-        },
-        select: {
-          dueDate: true,
-          amount: true,
-          currency: true,
-        },
-      });
-
-      // Grouping helper
-      const groupData = (data, dateKey) => {
-        const groups = {};
-        data.forEach((item) => {
-          const date = new Date(item[dateKey]);
-          const key = date.toISOString().split("T")[0];
-          const converted = convertAmount(item.amount, item.currency, targetCurrency);
-          groups[key] = (groups[key] || 0) + converted;
-        });
-        return Object.keys(groups)
-          .sort()
-          .map((date) => ({ date, amount: parseFloat(groups[date].toFixed(2)) }));
-      };
-
-      const historyRecords = groupData(paidInvoices, "date");
-      const forecastRecords = groupData(pendingInvoices, "dueDate");
-
-      // Plan Limits
-      const PLAN_LIMITS = {
-        FREE: {
-          waSends: 0,
-          emailSends: 5,
-          aiCredits: 0,
-          waReminders: 0,
-          emailReminders: 0,
-          invoices: 5,
-        },
-        PRO: {
-          waSends: 50,
-          emailSends: 100,
-          aiCredits: 20,
-          waReminders: 50,
-          emailReminders: 50,
-          invoices: 30,
-        },
-        MAX: {
-          waSends: 100,
-          emailSends: 100,
-          aiCredits: 100,
-          waReminders: 100,
-          emailReminders: 100,
-          invoices: 100,
-        },
-      };
-
-      const usageLimits = PLAN_LIMITS[plan] || PLAN_LIMITS.FREE;
 
       // AI Insights logic
       let insights = [];
@@ -213,6 +130,13 @@ async function dashboardRoutes(fastify, opts) {
         }
       }
 
+      // Usage Limits Helper
+      const PLAN_LIMITS = {
+        FREE: { waSends: 0, emailSends: 5, aiCredits: 0, waReminders: 0, emailReminders: 0, invoices: 5 },
+        PRO: { waSends: 50, emailSends: 100, aiCredits: 20, waReminders: 50, emailReminders: 50, invoices: 30 },
+        MAX: { waSends: 100, emailSends: 100, aiCredits: 100, waReminders: 100, emailReminders: 100, invoices: 100 },
+      };
+
       return {
         stats: {
           totalRevenue: parseFloat(totalRevenue.toFixed(2)),
@@ -223,16 +147,79 @@ async function dashboardRoutes(fastify, opts) {
         },
         recentInvoices,
         topClients,
-        cashflow: {
-          history: historyRecords,
-          forecast: forecastRecords,
-        },
-        usageLimits,
+        usageLimits: PLAN_LIMITS[plan] || PLAN_LIMITS.FREE,
         insights,
       };
     } catch (error) {
       fastify.log.error(error);
-      return reply.internalServerError("Failed to fetch dashboard data");
+      return reply.internalServerError("Failed to fetch core dashboard data");
+    }
+  });
+
+  fastify.get("/forecast", async (request, reply) => {
+    try {
+      const { range, month, year } = request.query;
+      const now = new Date();
+      
+      let historyStartDate, forecastEndDate;
+      
+      if (month && year) {
+        const m = parseInt(month);
+        const y = parseInt(year);
+        historyStartDate = new Date(y, m - 1, 1);
+        forecastEndDate = new Date(y, m, 0, 23, 59, 59);
+      } else if (range === "all") {
+        historyStartDate = new Date(2000, 0, 1);
+        forecastEndDate = new Date(2100, 0, 1);
+      } else {
+        const r = parseInt(range) || 30;
+        historyStartDate = new Date();
+        historyStartDate.setDate(now.getDate() - r);
+        forecastEndDate = new Date();
+        forecastEndDate.setDate(now.getDate() + r);
+      }
+
+      const user = await prisma.user.findUnique({ where: { id: request.user.id } });
+      const targetCurrency = user.defaultCurrency || "MYR";
+
+      const paidInvoices = await prisma.invoice.findMany({
+        where: {
+          userId: request.user.id,
+          status: "Paid",
+          date: { gte: historyStartDate, lte: now },
+        },
+        select: { date: true, amount: true, currency: true },
+      });
+
+      const pendingInvoices = await prisma.invoice.findMany({
+        where: {
+          userId: request.user.id,
+          status: { in: ["Pending", "Overdue"] },
+          dueDate: { gte: now, lte: forecastEndDate },
+        },
+        select: { dueDate: true, amount: true, currency: true },
+      });
+
+      const groupData = (data, dateKey) => {
+        const groups = {};
+        data.forEach((item) => {
+          const date = new Date(item[dateKey]);
+          const key = date.toISOString().split("T")[0];
+          const converted = convertAmount(item.amount, item.currency, targetCurrency);
+          groups[key] = (groups[key] || 0) + converted;
+        });
+        return Object.keys(groups).sort().map((date) => ({ date, amount: parseFloat(groups[date].toFixed(2)) }));
+      };
+
+      return {
+        cashflow: {
+          history: groupData(paidInvoices, "date"),
+          forecast: groupData(pendingInvoices, "dueDate"),
+        },
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.internalServerError("Failed to fetch forecast data");
     }
   });
 }
