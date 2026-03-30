@@ -28,6 +28,7 @@ model User {
   defaultTaxRate            Float    @default(0.0)
   companyPhone              String?
   reminderInterval          Int      @default(0)
+  whatsappReminderInterval  Int      @default(0)
   whatsappSendTemplate      String?  @default("{{userName}} {{companyName}} via InvoKita\n\nHello {{clientName}}, here is your invoice {{invoiceNumber}} for {{totalAmount}} {{currency}}. Due on {{dueDate}}. View here: {{invoiceUrl}}")
   whatsappReminderTemplate  String?  @default("{{userName}} {{companyName}} via InvoKita\n\nFriendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. Please ignore if already paid.")
   whatsappMode              String   @default("SYSTEM")

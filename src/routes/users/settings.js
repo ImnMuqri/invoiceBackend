@@ -15,6 +15,7 @@ async function settingsRoutes(fastify, opts) {
         twilioSid: true,
         twilioAuthToken: true,
         twilioPhoneNumber: true,
+        whatsappReminderInterval: true,
       },
     });
 
@@ -37,6 +38,7 @@ async function settingsRoutes(fastify, opts) {
       "twilioSid",
       "twilioAuthToken",
       "twilioPhoneNumber",
+      "whatsappReminderInterval",
     ];
 
     const isUpdatingWhatsapp = whatsappFields.some(
@@ -63,6 +65,7 @@ async function settingsRoutes(fastify, opts) {
         twilioSid: data.twilioSid,
         twilioAuthToken: data.twilioAuthToken,
         twilioPhoneNumber: data.twilioPhoneNumber,
+        whatsappReminderInterval: data.whatsappReminderInterval ? parseInt(data.whatsappReminderInterval) : undefined,
       },
       select: {
         whatsappSendTemplate: true,
@@ -71,6 +74,7 @@ async function settingsRoutes(fastify, opts) {
         twilioSid: true,
         twilioAuthToken: true,
         twilioPhoneNumber: true,
+        whatsappReminderInterval: true,
       },
     });
 
