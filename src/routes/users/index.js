@@ -28,18 +28,20 @@ async function userRoutes(fastify, opts) {
         waRemindersUsed: true,
         emailRemindersUsed: true,
         aiUsed: true,
+        referralCode: true,
+        referralCredits: true,
         lastResetDate: true,
         createdAt: true,
         subscriptions: {
-          orderBy: { createdAt: 'desc' },
+          orderBy: { createdAt: "desc" },
           take: 1,
           select: {
             plan: true,
             status: true,
             subscriptionStart: true,
             subscriptionEnds: true,
-          }
-        }
+          },
+        },
       },
     });
 
@@ -91,7 +93,7 @@ async function userRoutes(fastify, opts) {
 
   // POST subscribe to a plan
   fastify.post("/subscribe", async (request, reply) => {
-    const { plan } = request.body;
+    const { plan, promoCode } = request.body;
     if (!["FREE", "PRO", "MAX"].includes(plan)) {
       return reply.badRequest("Invalid plan");
     }
@@ -111,8 +113,38 @@ async function userRoutes(fastify, opts) {
     }
 
     try {
+      let discount = null;
+      if (promoCode) {
+        const promo = await prisma.promoCode.findUnique({
+          where: { code: promoCode.toUpperCase() },
+        });
+
+        if (promo && promo.isActive) {
+          const now = new Date();
+          const isNotExpired = !promo.expiresAt || promo.expiresAt > now;
+          const hasUsesLeft = !promo.maxUses || promo.uses < promo.maxUses;
+
+          if (isNotExpired && hasUsesLeft) {
+            discount = {
+              discountType: promo.discountType,
+              discountValue: promo.discountValue,
+            };
+
+            // Increment usage count
+            await prisma.promoCode.update({
+              where: { id: promo.id },
+              data: { uses: { increment: 1 } },
+            });
+          }
+        }
+      }
+
       // Create xendit recurring plan
-      const { plan: xenditPlan, customerId } = await createRecurringPlan(user, plan);
+      const { plan: xenditPlan, customerId } = await createRecurringPlan(
+        user,
+        plan,
+        discount,
+      );
 
       // Update user with customerId if newly created
       if (customerId && customerId !== user.xenditCustomerId) {
@@ -123,11 +155,15 @@ async function userRoutes(fastify, opts) {
       }
 
       // Xendit plan response will contain a checkout URL (actions array)
-      const authUrlAction = xenditPlan.actions?.find((a) => a.action === "AUTH");
+      const authUrlAction = xenditPlan.actions?.find(
+        (a) => a.action === "AUTH",
+      );
       const checkoutUrl = authUrlAction ? authUrlAction.url : null;
 
       if (!checkoutUrl) {
-        return reply.internalServerError("Could not generate Xendit checkout URL");
+        return reply.internalServerError(
+          "Could not generate Xendit checkout URL",
+        );
       }
 
       return {
@@ -138,7 +174,8 @@ async function userRoutes(fastify, opts) {
     } catch (err) {
       request.log.error(err);
       return reply.internalServerError(
-        "Failed to create Xendit subscription: " + (err.response?.data?.message || err.message)
+        "Failed to create Xendit subscription: " +
+          (err.response?.data?.message || err.message),
       );
     }
   });

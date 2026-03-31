@@ -61,17 +61,19 @@ async function adminRoutes(fastify, opts) {
       if (subscriptionEnds !== undefined) {
         // Update their latest subscription if they have one
         const latestSub = await prisma.subscription.findFirst({
-           where: { userId: parseInt(id) },
-           orderBy: { createdAt: 'desc' }
+          where: { userId: parseInt(id) },
+          orderBy: { createdAt: "desc" },
         });
         if (latestSub) {
-           await prisma.subscription.update({
-             where: { id: latestSub.id },
-             data: { 
-               subscriptionEnds: subscriptionEnds ? new Date(subscriptionEnds) : null,
-               status: "ACTIVE" 
-             }
-           });
+          await prisma.subscription.update({
+            where: { id: latestSub.id },
+            data: {
+              subscriptionEnds: subscriptionEnds
+                ? new Date(subscriptionEnds)
+                : null,
+              status: "ACTIVE",
+            },
+          });
         }
       }
 
@@ -105,6 +107,8 @@ async function adminRoutes(fastify, opts) {
       return reply.internalServerError("Failed to delete user");
     }
   });
+  // Register promo code routes
+  fastify.register(require("./promo-codes"), { prefix: "/promo-codes" });
 }
 
 module.exports = adminRoutes;

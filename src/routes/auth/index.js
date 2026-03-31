@@ -5,7 +5,7 @@ async function authRoutes(fastify, opts) {
 
   // POST register
   fastify.post("/register", async (request, reply) => {
-    const { email, password, name } = request.body;
+    const { email, password, name, referralCode } = request.body;
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
@@ -16,8 +16,23 @@ async function authRoutes(fastify, opts) {
       return reply.badRequest("User already exists");
     }
 
+    // Find referrer if referralCode is provided
+    let referrerId = null;
+    if (referralCode) {
+      const referrer = await prisma.user.findUnique({
+        where: { referralCode },
+      });
+      if (referrer) {
+        referrerId = referrer.id;
+      }
+    }
+
     // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Generate a unique referral code for the new user
+    const crypto = require("crypto");
+    const newReferralCode = crypto.randomBytes(4).toString("hex").toUpperCase();
 
     const user = await prisma.user.create({
       data: {
@@ -25,8 +40,15 @@ async function authRoutes(fastify, opts) {
         password: hashedPassword,
         name,
         plan: "FREE",
+        referredById: referrerId,
+        referralCode: newReferralCode,
       },
     });
+
+    // If referred, we don't increment credits yet?
+    // Usually credits are incremented when the referred user subscribes (as per user request).
+    // Or maybe just for signing up? The user said "when user subscribe you can claim reward".
+    // So I'll increment credits in a webhook or subscription logic later.
 
     // Generate Tokens
     const accessToken = fastify.jwt.sign(
@@ -60,16 +82,16 @@ async function authRoutes(fastify, opts) {
       where: { email },
       include: {
         subscriptions: {
-          orderBy: { createdAt: 'desc' },
+          orderBy: { createdAt: "desc" },
           take: 1,
           select: {
             plan: true,
             status: true,
             subscriptionStart: true,
             subscriptionEnds: true,
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
     if (!user) {

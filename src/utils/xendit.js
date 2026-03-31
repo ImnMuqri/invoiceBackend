@@ -9,12 +9,23 @@ const getAuthToken = () => {
  * Creates a recurring plan in Xendit.
  * Billed monthly.
  */
-async function createRecurringPlan(user, planName) {
+async function createRecurringPlan(user, planName, discount = null) {
   // Determine pricing based on plan
   let amount = 0;
   if (planName === "PRO") amount = 59;
   else if (planName === "MAX") amount = 99;
   else throw new Error("Invalid plan for subscription");
+
+  // Apply discount if present
+  if (discount) {
+    if (discount.discountType === "PERCENTAGE") {
+      amount = amount * (1 - discount.discountValue / 100);
+    } else if (discount.discountType === "FIXED") {
+      amount = Math.max(0, amount - discount.discountValue);
+    }
+    // Round to 2 decimal places for Xendit
+    amount = Math.round(amount * 100) / 100;
+  }
 
   const referenceId = `sub_${user.id}_${planName}_${Date.now()}`;
 
@@ -58,7 +69,7 @@ async function createRecurringPlan(user, planName) {
           Authorization: `Basic ${getAuthToken()}`,
           "Content-Type": "application/json",
         },
-      }
+      },
     );
     customerId = customerResponse.data.id;
   }
@@ -74,7 +85,7 @@ async function createRecurringPlan(user, planName) {
         Authorization: `Basic ${getAuthToken()}`,
         "Content-Type": "application/json",
       },
-    }
+    },
   );
 
   const { PrismaClient } = require("@prisma/client");
@@ -86,8 +97,8 @@ async function createRecurringPlan(user, planName) {
       xenditSubscriptionId: response.data.id || referenceId,
       plan: planName,
       amount: amount,
-      status: "PENDING" // Will be ACTIVE upon successful webhook
-    }
+      status: "PENDING", // Will be ACTIVE upon successful webhook
+    },
   });
 
   return { plan: response.data, customerId };

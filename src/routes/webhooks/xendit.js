@@ -19,7 +19,7 @@ async function xenditWebhooks(fastify, opts) {
 
       if (isActivation) {
         let referenceId = data.reference_id || ""; // e.g., sub_1_PRO_123456
-        
+
         // If the webhook is a cycle event, the reference_id might be "schedule_sub_..."
         if (referenceId.startsWith("schedule_")) {
           referenceId = referenceId.replace("schedule_", "");
@@ -32,6 +32,10 @@ async function xenditWebhooks(fastify, opts) {
           // Safely extract the root Plan ID even if this is a cycle event
           const xenditSubscriptionId = data.plan_id || data.id;
 
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+          });
+
           await prisma.user.update({
             where: { id: userId },
             data: {
@@ -39,6 +43,24 @@ async function xenditWebhooks(fastify, opts) {
               xenditSubscriptionId: xenditSubscriptionId,
             },
           });
+
+          // Referral logic: If user was referred and this is their first subscription
+          if (
+            user &&
+            user.referredById &&
+            planName !== "FREE" &&
+            user.plan === "FREE"
+          ) {
+            await prisma.user.update({
+              where: { id: user.referredById },
+              data: {
+                referralCredits: { increment: 1 },
+              },
+            });
+            fastify.log.info(
+              `Incremented referral credits for Referrer ${user.referredById} due to User ${userId} subscription`,
+            );
+          }
 
           // Also update the dedicated Subscription table record
           const now = new Date();
@@ -54,7 +76,9 @@ async function xenditWebhooks(fastify, opts) {
             data: {
               status: "ACTIVE",
               subscriptionStart: now,
-              subscriptionEnds: data.scheduled_timestamp ? new Date(data.scheduled_timestamp) : nextMonth,
+              subscriptionEnds: data.scheduled_timestamp
+                ? new Date(data.scheduled_timestamp)
+                : nextMonth,
             },
           });
 

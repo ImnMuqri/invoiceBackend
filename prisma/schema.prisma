@@ -51,6 +51,11 @@ model User {
   aiUsed                    Int      @default(0)
   invoicesUsed              Int      @default(0)
   lastResetDate             DateTime @default(now())
+  referralCode              String?  @unique
+  referralCredits           Int      @default(0)
+  referredById              Int?
+  referredBy                User?    @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals                 User[]   @relation("UserReferrals")
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
   clients                   Client[]
@@ -151,4 +156,17 @@ model Subscription {
   subscriptionEnds     DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime @updatedAt
+}
+
+model PromoCode {
+  id            Int      @id @default(autoincrement())
+  code          String   @unique
+  discountType  String   // "PERCENTAGE" or "FIXED"
+  discountValue Float
+  maxUses       Int?
+  uses          Int      @default(0)
+  expiresAt     DateTime?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
