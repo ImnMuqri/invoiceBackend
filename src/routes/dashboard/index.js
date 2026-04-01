@@ -57,6 +57,8 @@ async function dashboardRoutes(fastify, opts) {
         include: { client: true },
       });
 
+      const { rank = "top5" } = request.query;
+
       const topClientsRaw = await prisma.invoice.groupBy({
         by: ["clientId"],
         where: {
@@ -68,7 +70,7 @@ async function dashboardRoutes(fastify, opts) {
         },
         orderBy: {
           _sum: {
-            amount: "desc",
+            amount: rank === "bottom5" ? "asc" : "desc",
           },
         },
         take: plan === "FREE" ? 1 : 5,
@@ -95,39 +97,87 @@ async function dashboardRoutes(fastify, opts) {
             name: client?.name || "Deleted Client",
             totalRevenue: convertedRevenue,
             profitMargin: client?.profitMargin || 25,
+            averageDelayDays: client?.averageDelayDays || 0,
+            status: client?.status || "Active",
           };
         }),
       );
 
-      // AI Insights logic
+      // AI Insights logic (Generative AI with 2-day cooldown)
       let insights = [];
       if (plan !== "FREE") {
-        const overdueInvoices = await prisma.invoice.findMany({
-          where: {
-            status: "Overdue",
-            userId: request.user.id,
-          },
-          include: { client: true },
-          take: 3,
-        });
+        const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+        let cachedInsights = [];
+        try {
+          cachedInsights = user.aiInsights ? JSON.parse(user.aiInsights) : [];
+        } catch (e) {
+          cachedInsights = [];
+        }
 
-        overdueInvoices.forEach((inv) => {
-          insights.push({
-            type: "chaser",
-            id: inv.id,
-            title: `Overdue: ${inv.client.name}`,
-            description: `Invoice ${inv.invoiceNumber || inv.id} is overdue by ${Math.floor((now - new Date(inv.dueDate)) / (1000 * 60 * 60 * 24))} days.`,
-            action: "Send Chaser",
-          });
-        });
+        // Regenerate if no insights or 2 days have passed
+        if (
+          !user.lastAiInsightAt ||
+          new Date(user.lastAiInsightAt) < twoDaysAgo
+        ) {
+          const { generateInsights } = require("../../utils/aiService");
 
-        if (insights.length === 0) {
-          insights.push({
-            type: "info",
-            title: "All caught up!",
-            description: "No urgent chasers needed right now. Good job!",
-            action: "View All",
+          // Usage check (AI insights consume 1 credit)
+          try {
+            await fastify.usage.checkAndIncrement(user.id, "ai");
+          } catch (err) {
+            // If credit limit reached, just use cached
+            return {
+              stats: {
+                totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+                outstandingAmount: parseFloat(outstandingAmount.toFixed(2)),
+                overdueCount,
+                activeClients: activeClientsCount,
+                currency: targetCurrency,
+              },
+              recentInvoices,
+              topClients,
+              usageLimits: PLAN_LIMITS[plan] || PLAN_LIMITS.FREE,
+              insights: cachedInsights,
+            };
+          }
+
+          // Fetch fresh overdue context for AI
+          const overdueInvoicesContext = await prisma.invoice.findMany({
+            where: { userId: user.id, status: "Overdue" },
+            select: {
+              amount: true,
+              currency: true,
+              dueDate: true,
+              client: { select: { name: true } },
+            },
+            take: 5,
           });
+
+          const aiContext = {
+            currency: targetCurrency,
+            totalRevenue,
+            outstandingAmount,
+            overdueInvoices: overdueInvoicesContext,
+            topClients,
+          };
+
+          const newInsights = await generateInsights(aiContext);
+
+          if (newInsights && newInsights.length > 0) {
+            // Persist insights and update cooldown
+            await prisma.user.update({
+              where: { id: user.id },
+              data: {
+                aiInsights: JSON.stringify(newInsights),
+                lastAiInsightAt: new Date(),
+              },
+            });
+            insights = newInsights;
+          } else {
+            insights = cachedInsights;
+          }
+        } else {
+          insights = cachedInsights;
         }
       }
 
