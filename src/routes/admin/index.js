@@ -93,6 +93,46 @@ async function adminRoutes(fastify, opts) {
     }
   });
 
+  // POST /users/:id/cancel-subscription - Administrative cancel
+  fastify.post("/users/:id/cancel-subscription", async (request, reply) => {
+    try {
+      const { id } = request.params;
+      const userId = parseInt(id);
+
+      const { cancelRecurringPlan } = require("../../utils/xendit");
+
+      // 1. Find active subscription
+      const activeSub = await prisma.subscription.findFirst({
+        where: { userId, status: "ACTIVE" },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (activeSub && activeSub.xenditSubscriptionId) {
+        // Cancel in Xendit
+        await cancelRecurringPlan(activeSub.xenditSubscriptionId);
+
+        await prisma.subscription.update({
+          where: { id: activeSub.id },
+          data: { status: "CANCELLED" },
+        });
+      }
+
+      // 2. Downgrade user
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          plan: "FREE",
+          xenditSubscriptionId: null,
+        },
+      });
+
+      return updatedUser;
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.internalServerError("Failed to cancel subscription");
+    }
+  });
+
   // DELETE /users/:id - Delete user
   fastify.delete("/users/:id", async (request, reply) => {
     try {

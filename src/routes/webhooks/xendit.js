@@ -67,11 +67,9 @@ async function xenditWebhooks(fastify, opts) {
           const nextMonth = new Date();
           nextMonth.setMonth(nextMonth.getMonth() + 1);
 
-          await prisma.subscription.updateMany({
+          await prisma.subscription.update({
             where: {
-              userId: userId,
-              plan: planName,
-              status: "PENDING",
+              xenditSubscriptionId: xenditSubscriptionId,
             },
             data: {
               status: "ACTIVE",

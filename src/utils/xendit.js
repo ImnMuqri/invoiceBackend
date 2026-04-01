@@ -104,6 +104,28 @@ async function createRecurringPlan(user, planName, discount = null) {
   return { plan: response.data, customerId };
 }
 
+async function cancelRecurringPlan(planId) {
+  if (!planId) return;
+
+  try {
+    await axios.post(
+      `https://api.xendit.co/recurring/plans/${planId}/deactivate`,
+      {},
+      {
+        headers: {
+          Authorization: `Basic ${getAuthToken()}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+    return true;
+  } catch (error) {
+    console.error(`Failed to deactivate Xendit plan ${planId}:`, error.message);
+    return false;
+  }
+}
+
 module.exports = {
   createRecurringPlan,
+  cancelRecurringPlan,
 };

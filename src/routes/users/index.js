@@ -98,12 +98,28 @@ async function userRoutes(fastify, opts) {
       return reply.badRequest("Invalid plan");
     }
 
-    const { createRecurringPlan } = require("../../utils/xendit");
+    const {
+      createRecurringPlan,
+      cancelRecurringPlan,
+    } = require("../../utils/xendit");
     const user = await prisma.user.findUnique({
       where: { id: request.user.id },
     });
 
     if (plan === "FREE") {
+      // Find active subscription to cancel in Xendit
+      const activeSub = await prisma.subscription.findFirst({
+        where: { userId: user.id, status: "ACTIVE" },
+      });
+
+      if (activeSub && activeSub.xenditSubscriptionId) {
+        await cancelRecurringPlan(activeSub.xenditSubscriptionId);
+        await prisma.subscription.update({
+          where: { id: activeSub.id },
+          data: { status: "CANCELLED" },
+        });
+      }
+
       // Direct downgrade to free
       const updatedUser = await prisma.user.update({
         where: { id: user.id },
@@ -111,6 +127,33 @@ async function userRoutes(fastify, opts) {
       });
       return { plan: "FREE", message: "Successfully downgraded to FREE plan." };
     }
+
+    // Check if already active
+    const activeSub = await prisma.subscription.findFirst({
+      where: { userId: user.id, status: "ACTIVE" },
+    });
+
+    if (activeSub) {
+      if (activeSub.plan === plan) {
+        return reply.badRequest(
+          `You already have an active ${plan} subscription.`,
+        );
+      }
+
+      // Switching plans: Cancel old one first in Xendit
+      if (activeSub.xenditSubscriptionId) {
+        await cancelRecurringPlan(activeSub.xenditSubscriptionId);
+        await prisma.subscription.update({
+          where: { id: activeSub.id },
+          data: { status: "CANCELLED" },
+        });
+      }
+    }
+
+    // Clean up old pending ones for same plan to avoid UI clutter
+    await prisma.subscription.deleteMany({
+      where: { userId: user.id, status: "PENDING", plan: plan },
+    });
 
     try {
       let discount = null;
