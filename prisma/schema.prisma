@@ -52,6 +52,7 @@ model User {
   lastResetDate             DateTime @default(now())
   referralCode              String?  @unique
   referralCredits           Int      @default(0)
+  referralCreditEarned      Boolean  @default(false)
   referredById              Int?
   referredBy                User?    @relation("UserReferrals", fields: [referredById], references: [id])
   referrals                 User[]   @relation("UserReferrals")

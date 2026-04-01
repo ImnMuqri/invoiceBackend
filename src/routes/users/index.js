@@ -45,7 +45,6 @@ async function userRoutes(fastify, opts) {
         createdAt: true,
         subscriptions: {
           orderBy: { createdAt: "desc" },
-          take: 1,
           select: {
             plan: true,
             status: true,

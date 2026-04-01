@@ -48,9 +48,15 @@ async function xenditWebhooks(fastify, opts) {
           if (
             user &&
             user.referredById &&
+            !user.referralCreditEarned &&
             planName !== "FREE" &&
             user.plan === "FREE"
           ) {
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { referralCreditEarned: true },
+            });
+
             await prisma.user.update({
               where: { id: user.referredById },
               data: {
@@ -58,7 +64,7 @@ async function xenditWebhooks(fastify, opts) {
               },
             });
             fastify.log.info(
-              `Incremented referral credits for Referrer ${user.referredById} due to User ${userId} subscription`,
+              `Incremented referral credits for Referrer ${user.referredById} due to User ${userId} first-time subscription`,
             );
           }
 
