@@ -8,7 +8,7 @@ async function dashboardRoutes(fastify, opts) {
   fastify.get("/core", async (request, reply) => {
     try {
       const now = new Date();
-      
+
       // Get user's default currency and plan
       const user = await prisma.user.findUnique({
         where: { id: request.user.id },
@@ -28,7 +28,7 @@ async function dashboardRoutes(fastify, opts) {
         }, 0);
 
       const outstandingAmount = allInvoices
-        .filter((inv) => inv.status === "Pending")
+        .filter((inv) => ["Pending", "Overdue"].includes(inv.status))
         .reduce((sum, inv) => {
           return sum + convertAmount(inv.amount, inv.currency, targetCurrency);
         }, 0);
@@ -79,13 +79,15 @@ async function dashboardRoutes(fastify, opts) {
           const client = await prisma.client.findUnique({
             where: { id: raw.clientId },
           });
-          
+
           const clientPaidInvoices = await prisma.invoice.findMany({
-            where: { clientId: raw.clientId, status: "Paid" }
+            where: { clientId: raw.clientId, status: "Paid" },
           });
-          
+
           const convertedRevenue = clientPaidInvoices.reduce((sum, inv) => {
-            return sum + convertAmount(inv.amount, inv.currency, targetCurrency);
+            return (
+              sum + convertAmount(inv.amount, inv.currency, targetCurrency)
+            );
           }, 0);
 
           return {
@@ -102,8 +104,7 @@ async function dashboardRoutes(fastify, opts) {
       if (plan !== "FREE") {
         const overdueInvoices = await prisma.invoice.findMany({
           where: {
-            status: "Pending",
-            dueDate: { lt: now },
+            status: "Overdue",
             userId: request.user.id,
           },
           include: { client: true },
@@ -132,9 +133,30 @@ async function dashboardRoutes(fastify, opts) {
 
       // Usage Limits Helper
       const PLAN_LIMITS = {
-        FREE: { waSends: 0, emailSends: 5, aiCredits: 0, waReminders: 0, emailReminders: 0, invoices: 5 },
-        PRO: { waSends: 50, emailSends: 100, aiCredits: 20, waReminders: 50, emailReminders: 50, invoices: 30 },
-        MAX: { waSends: 100, emailSends: 100, aiCredits: 100, waReminders: 100, emailReminders: 100, invoices: 100 },
+        FREE: {
+          waSends: 0,
+          emailSends: 5,
+          aiCredits: 0,
+          waReminders: 0,
+          emailReminders: 0,
+          invoices: 5,
+        },
+        PRO: {
+          waSends: 50,
+          emailSends: 100,
+          aiCredits: 20,
+          waReminders: 50,
+          emailReminders: 50,
+          invoices: 30,
+        },
+        MAX: {
+          waSends: 100,
+          emailSends: 100,
+          aiCredits: 100,
+          waReminders: 100,
+          emailReminders: 100,
+          invoices: 100,
+        },
       };
 
       return {
@@ -160,9 +182,9 @@ async function dashboardRoutes(fastify, opts) {
     try {
       const { range, month, year } = request.query;
       const now = new Date();
-      
+
       let historyStartDate, forecastEndDate;
-      
+
       if (month && year) {
         const m = parseInt(month);
         const y = parseInt(year);
@@ -179,7 +201,9 @@ async function dashboardRoutes(fastify, opts) {
         forecastEndDate.setDate(now.getDate() + r);
       }
 
-      const user = await prisma.user.findUnique({ where: { id: request.user.id } });
+      const user = await prisma.user.findUnique({
+        where: { id: request.user.id },
+      });
       const targetCurrency = user.defaultCurrency || "MYR";
 
       const paidInvoices = await prisma.invoice.findMany({
@@ -202,37 +226,43 @@ async function dashboardRoutes(fastify, opts) {
 
       const groupData = (data, dateKey) => {
         const groups = {};
-        
+
         // Process actual data
         for (const item of data) {
           const date = new Date(item[dateKey]);
           const key = date.toISOString().split("T")[0];
-          
+
           if (!groups[key]) {
             groups[key] = { amount: 0, details: [] };
           }
 
-          const converted = convertAmount(item.amount, item.currency, targetCurrency);
+          const converted = convertAmount(
+            item.amount,
+            item.currency,
+            targetCurrency,
+          );
           groups[key].amount = (groups[key].amount || 0) + converted;
-          
+
           groups[key].details.push({
             clientName: item.client?.name || "N/A",
             clientId: item.clientId || "Unknown",
             invoiceNumber: item.invoiceNumber || item.id,
             amount: parseFloat(converted.toFixed(2)),
-            dueDate: item.dueDate || item.date
+            dueDate: item.dueDate || item.date,
           });
         }
-        
+
         // Finalize and return as sorted array
-        return Object.keys(groups).sort().map((date) => {
-          const group = groups[date];
-          return { 
-            date, 
-            amount: parseFloat((group.amount || 0).toFixed(2)),
-            details: group.details.length > 0 ? group.details : []
-          };
-        });
+        return Object.keys(groups)
+          .sort()
+          .map((date) => {
+            const group = groups[date];
+            return {
+              date,
+              amount: parseFloat((group.amount || 0).toFixed(2)),
+              details: group.details.length > 0 ? group.details : [],
+            };
+          });
       };
 
       return {

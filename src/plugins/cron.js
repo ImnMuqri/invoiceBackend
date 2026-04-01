@@ -56,7 +56,9 @@ async function cronPlugin(fastify, opts) {
           };
         }
 
-        const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/['"]/g, "").replace(/\/$/, "") : "http://localhost:3000";
+        const frontendUrl = process.env.FRONTEND_URL
+          ? process.env.FRONTEND_URL.replace(/['"]/g, "").replace(/\/$/, "")
+          : "http://localhost:3000";
         const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
         for (const invoice of pendingInvoices) {
@@ -123,7 +125,9 @@ async function cronPlugin(fastify, opts) {
               // Usage check for Email reminder
               await fastify.usage.checkAndIncrement(user.id, "emailReminder");
 
-              const { getInvoiceEmailTemplate } = require("../utils/emailTemplates");
+              const {
+                getInvoiceEmailTemplate,
+              } = require("../utils/emailTemplates");
               const html = getInvoiceEmailTemplate({
                 clientName: invoice.client.name,
                 senderName: user.name || "Our Company",
@@ -132,7 +136,11 @@ async function cronPlugin(fastify, opts) {
                 amount: invoice.amount,
                 currency: invoice.currency,
                 dueDate: invoice.dueDate,
-                status: invoice.status === "Pending" && new Date(invoice.dueDate) < new Date() ? "Overdue" : invoice.status,
+                status:
+                  invoice.status === "Pending" &&
+                  new Date(invoice.dueDate) < new Date()
+                    ? "Overdue"
+                    : invoice.status,
                 publicUrl: invoiceUrl,
               });
 
@@ -165,15 +173,41 @@ async function cronPlugin(fastify, opts) {
     }
   };
 
-  // Schedule cron job: Daily at 9 AM
-  // "0 9 * * *"
+  // Function to mark invoices as overdue
+  const markOverdueInvoices = async () => {
+    fastify.log.info("Starting automated overdue status update...");
+    try {
+      const now = new Date();
+      const result = await fastify.prisma.invoice.updateMany({
+        where: {
+          status: "Pending",
+          dueDate: { lt: now },
+        },
+        data: {
+          status: "Overdue",
+        },
+      });
+      if (result.count > 0) {
+        fastify.log.info(`Updated ${result.count} invoices to Overdue status.`);
+      }
+    } catch (error) {
+      fastify.log.error("Error in overdue update job: " + error.message);
+    }
+  };
+
+  // Schedule cron jobs
+  // Daily at 9 AM: Reminders
   cron.schedule("0 9 * * *", processReminders);
 
-  // Also expose the function for manual triggering if needed
+  // Daily at 1 AM: Overdue status updates
+  cron.schedule("0 1 * * *", markOverdueInvoices);
+
+  // Also expose the functions for manual triggering if needed
   fastify.decorate("runReminderJob", processReminders);
+  fastify.decorate("runOverdueJob", markOverdueInvoices);
 
   fastify.log.info(
-    "Cron plugin initialized: Automated reminders scheduled daily at 9 AM.",
+    "Cron plugin initialized: Automated reminders and overdue checks scheduled.",
   );
 }
 
