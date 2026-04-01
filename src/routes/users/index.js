@@ -21,7 +21,18 @@ async function userRoutes(fastify, opts) {
         companyPhone: true,
         address: true,
         defaultCurrency: true,
+        defaultTaxRate: true,
         reminderInterval: true,
+        whatsappReminderInterval: true,
+        invoiceIncludeName: true,
+        invoiceIncludeEmail: true,
+        invoiceIncludePersonalPhone: true,
+        invoiceIncludeCompanyPhone: true,
+        invoiceIncludeCompanyName: true,
+        invoiceIncludeAddress: true,
+        globalAutoChaser: true,
+        invoicePrefix: true,
+        defaultTaxRate: true,
         plan: true,
         waSendsUsed: true,
         emailSendsUsed: true,
@@ -40,6 +51,7 @@ async function userRoutes(fastify, opts) {
             status: true,
             subscriptionStart: true,
             subscriptionEnds: true,
+            cancelAtPeriodEnd: true,
           },
         },
       },
@@ -69,7 +81,17 @@ async function userRoutes(fastify, opts) {
         companyPhone: data.companyPhone,
         address: data.address,
         defaultCurrency: data.defaultCurrency,
+        defaultTaxRate: data.defaultTaxRate,
         reminderInterval: data.reminderInterval,
+        invoiceIncludeName: data.invoiceIncludeName,
+        invoiceIncludeEmail: data.invoiceIncludeEmail,
+        invoiceIncludePersonalPhone: data.invoiceIncludePersonalPhone,
+        invoiceIncludeCompanyPhone: data.invoiceIncludeCompanyPhone,
+        invoiceIncludeCompanyName: data.invoiceIncludeCompanyName,
+        invoiceIncludeAddress: data.invoiceIncludeAddress,
+        globalAutoChaser: data.globalAutoChaser,
+        invoicePrefix: data.invoicePrefix,
+        defaultTaxRate: data.defaultTaxRate,
       },
       select: {
         id: true,
@@ -83,7 +105,16 @@ async function userRoutes(fastify, opts) {
         companyPhone: true,
         address: true,
         defaultCurrency: true,
+        defaultTaxRate: true,
         reminderInterval: true,
+        invoiceIncludeName: true,
+        invoiceIncludeEmail: true,
+        invoiceIncludePersonalPhone: true,
+        invoiceIncludeCompanyPhone: true,
+        invoiceIncludeCompanyName: true,
+        invoiceIncludeAddress: true,
+        globalAutoChaser: true,
+        invoicePrefix: true,
         plan: true,
       },
     });
@@ -116,16 +147,15 @@ async function userRoutes(fastify, opts) {
         await cancelRecurringPlan(activeSub.xenditSubscriptionId);
         await prisma.subscription.update({
           where: { id: activeSub.id },
-          data: { status: "CANCELLED" },
+          data: { status: "CANCELLED", cancelAtPeriodEnd: true },
         });
       }
 
-      // Direct downgrade to free
-      const updatedUser = await prisma.user.update({
-        where: { id: user.id },
-        data: { plan: "FREE", xenditSubscriptionId: null },
-      });
-      return { plan: "FREE", message: "Successfully downgraded to FREE plan." };
+      return {
+        plan: user.plan,
+        message:
+          "Your subscription has been cancelled and will remain active until the end of the current period.",
+      };
     }
 
     // Check if already active

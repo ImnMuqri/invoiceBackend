@@ -25,7 +25,6 @@ model User {
   companyEmail              String?
   address                   String?
   defaultCurrency           String   @default("MYR")
-  defaultTaxRate            Float    @default(0.0)
   companyPhone              String?
   reminderInterval          Int      @default(0)
   whatsappReminderInterval  Int      @default(0)
@@ -58,6 +57,15 @@ model User {
   referrals                 User[]   @relation("UserReferrals")
   aiInsights               String?
   lastAiInsightAt          DateTime?
+  invoiceIncludeName          Boolean  @default(true)
+  invoiceIncludeEmail         Boolean  @default(false)
+  invoiceIncludePersonalPhone Boolean  @default(false)
+  invoiceIncludeCompanyPhone  Boolean  @default(true)
+  invoiceIncludeCompanyName    Boolean  @default(true)
+  invoiceIncludeAddress       Boolean  @default(true)
+  defaultTaxRate               Float    @default(0.0)
+  globalAutoChaser            Boolean  @default(true)
+  invoicePrefix               String   @default("INV")
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
   clients                   Client[]
@@ -157,8 +165,9 @@ model Subscription {
   status               String    @default("PENDING")
   subscriptionStart    DateTime?
   subscriptionEnds     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
   createdAt            DateTime  @default(now())
-  updatedAt            DateTime @updatedAt
+  updatedAt            DateTime  @updatedAt
 }
 
 model PromoCode {
