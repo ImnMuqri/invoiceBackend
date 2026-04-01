@@ -35,8 +35,8 @@ async function adminRoutes(fastify, opts) {
       const [userCount, invoiceCount, totalRevenueRaw] = await Promise.all([
         prisma.user.count(),
         prisma.invoice.count(),
-        prisma.invoice.aggregate({
-          where: { status: "Paid" },
+        prisma.subscription.aggregate({
+          where: { status: "ACTIVE" },
           _sum: { amount: true },
         }),
       ]);
