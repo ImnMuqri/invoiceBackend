@@ -83,6 +83,7 @@ async function authRoutes(fastify, opts) {
       include: {
         subscriptions: {
           orderBy: { createdAt: "desc" },
+          take: 1,
           select: {
             plan: true,
             status: true,
