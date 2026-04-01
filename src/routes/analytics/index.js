@@ -50,6 +50,8 @@ async function analyticsRoutes(fastify, opts) {
 
       // Revenue Trends (Daily)
       const targetCurrency = "USD";
+
+      // 1. Paid Invoices
       const paidInvoices = await prisma.invoice.findMany({
         where: {
           status: "Paid",
@@ -58,12 +60,34 @@ async function analyticsRoutes(fastify, opts) {
         select: { amount: true, currency: true, date: true },
       });
 
+      // 2. Active Subscriptions
+      const activeSubscriptions = await prisma.subscription.findMany({
+        where: {
+          status: "ACTIVE",
+          createdAt: { gte: thirtyDaysAgo },
+        },
+        select: { amount: true, currency: true, createdAt: true },
+      });
+
       const revenueTrends = {};
+
+      // Process Invoices
       paidInvoices.forEach((inv) => {
         const date = inv.date.toISOString().split("T")[0];
         const converted = convertAmount(
           inv.amount,
           inv.currency,
+          targetCurrency,
+        );
+        revenueTrends[date] = (revenueTrends[date] || 0) + converted;
+      });
+
+      // Process Subscriptions
+      activeSubscriptions.forEach((sub) => {
+        const date = sub.createdAt.toISOString().split("T")[0];
+        const converted = convertAmount(
+          sub.amount,
+          sub.currency,
           targetCurrency,
         );
         revenueTrends[date] = (revenueTrends[date] || 0) + converted;
@@ -77,28 +101,45 @@ async function analyticsRoutes(fastify, opts) {
         },
         select: { amount: true, currency: true },
       });
-      const prevRevenue = prevPaidInvoices.reduce(
-        (sum, inv) =>
-          sum + convertAmount(inv.amount, inv.currency, targetCurrency),
-        0,
-      );
-      const currentRevenue = paidInvoices.reduce(
-        (sum, inv) =>
-          sum +
-          revenueTrends[inv.date.toISOString().split("T")[0]] /
-            Object.values(revenueTrends).length,
-        0,
-      );
-      // Wait, currentRevenue is just sum of revenueTrends
+
+      const prevActiveSubs = await prisma.subscription.findMany({
+        where: {
+          status: "ACTIVE",
+          createdAt: { lt: thirtyDaysAgo, gte: sixtyDaysAgo },
+        },
+        select: { amount: true, currency: true },
+      });
+
+      const prevRevenue =
+        prevPaidInvoices.reduce(
+          (sum, inv) =>
+            sum + convertAmount(inv.amount, inv.currency, targetCurrency),
+          0,
+        ) +
+        prevActiveSubs.reduce(
+          (sum, sub) =>
+            sum + convertAmount(sub.amount, sub.currency, targetCurrency),
+          0,
+        );
+
       const totalCurrentRevenue = Object.values(revenueTrends).reduce(
         (sum, val) => sum + val,
         0,
       );
 
-      const lifetimeRevenueRaw = await prisma.invoice.aggregate({
+      // Lifetime Totals
+      const lifetimeInvoices = await prisma.invoice.aggregate({
         where: { status: "Paid" },
         _sum: { amount: true },
       });
+
+      const lifetimeSubs = await prisma.subscription.aggregate({
+        where: { status: "ACTIVE" },
+        _sum: { amount: true },
+      });
+
+      const totalLifetimeRevenue =
+        (lifetimeInvoices._sum.amount || 0) + (lifetimeSubs._sum.amount || 0);
 
       const calcGrowth = (curr, prev) => {
         if (prev === 0) return curr > 0 ? 100 : 0;
@@ -139,7 +180,7 @@ async function analyticsRoutes(fastify, opts) {
         summary: {
           revenue: {
             total: parseFloat(totalCurrentRevenue.toFixed(2)),
-            lifetime: lifetimeRevenueRaw._sum.amount || 0,
+            lifetime: totalLifetimeRevenue,
             growth: calcGrowth(totalCurrentRevenue, prevRevenue),
           },
           users: {
@@ -150,7 +191,7 @@ async function analyticsRoutes(fastify, opts) {
             total: totalInvoices,
             growth: calcGrowth(paidInvoices.length, prevInvoicesCount),
           },
-          totalTransactions: totalInvoices,
+          totalTransactions: paidInvoices.length + activeSubscriptions.length,
           activeSubscriptions: totalActiveSubs,
         },
         web: {
@@ -197,26 +238,43 @@ async function analyticsRoutes(fastify, opts) {
       const endDate = new Date(year, month, 0, 23, 59, 59);
 
       const targetCurrency = "USD";
-      const paidInvoices = await prisma.invoice.findMany({
-        where: {
-          status: "Paid",
-          date: { gte: startDate, lte: endDate },
-        },
-        select: { amount: true, currency: true },
-      });
+      const [paidInvoices, activeSubs] = await Promise.all([
+        prisma.invoice.findMany({
+          where: {
+            status: "Paid",
+            date: { gte: startDate, lte: endDate },
+          },
+          select: { amount: true, currency: true },
+        }),
+        prisma.subscription.findMany({
+          where: {
+            status: "ACTIVE",
+            createdAt: { gte: startDate, lte: endDate },
+          },
+          select: { amount: true, currency: true },
+        }),
+      ]);
 
-      const monthlyRevenue = paidInvoices.reduce(
+      const invRevenue = paidInvoices.reduce(
         (sum, inv) =>
           sum + convertAmount(inv.amount, inv.currency, targetCurrency),
         0,
       );
 
+      const subRevenue = activeSubs.reduce(
+        (sum, sub) =>
+          sum + convertAmount(sub.amount, sub.currency, targetCurrency),
+        0,
+      );
+
+      const totalMonthlyRevenue = invRevenue + subRevenue;
+
       return {
         month: parseInt(month),
         year: parseInt(year),
-        revenue: parseFloat(monthlyRevenue.toFixed(2)),
+        revenue: parseFloat(totalMonthlyRevenue.toFixed(2)),
         currency: targetCurrency,
-        transactionCount: paidInvoices.length,
+        transactionCount: paidInvoices.length + activeSubs.length,
       };
     } catch (error) {
       fastify.log.error(error);
