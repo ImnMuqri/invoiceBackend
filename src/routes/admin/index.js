@@ -109,6 +109,8 @@ async function adminRoutes(fastify, opts) {
   });
   // Register promo code routes
   fastify.register(require("./promo-codes"), { prefix: "/promo-codes" });
+  // Register transaction routes
+  fastify.register(require("./transactions"), { prefix: "/transactions" });
 }
 
 module.exports = adminRoutes;
