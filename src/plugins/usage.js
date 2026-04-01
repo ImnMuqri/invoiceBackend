@@ -10,7 +10,7 @@ async function usagePlugin(fastify, opts) {
       emailSends: 5,
       waReminders: 0,
       emailReminders: 0,
-      ai: 0,
+      ai: 2,
     },
     PRO: {
       invoices: 30,
@@ -108,8 +108,51 @@ async function usagePlugin(fastify, opts) {
     return true;
   };
 
+  const checkOnly = async (userId, type) => {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) throw new Error("User not found");
+
+    const plan = user.plan || "FREE";
+    const limits = LIMITS[plan] || LIMITS.FREE;
+
+    const fieldMap = {
+      waSend: "waSendsUsed",
+      emailSend: "emailSendsUsed",
+      waReminder: "waRemindersUsed",
+      emailReminder: "emailRemindersUsed",
+      ai: "aiUsed",
+      invoice: "invoicesUsed",
+    };
+
+    const limitMap = {
+      waSend: "waSends",
+      emailSend: "emailSends",
+      waReminder: "waReminders",
+      emailReminder: "emailReminders",
+      ai: "ai",
+      invoice: "invoices",
+    };
+
+    const countField = fieldMap[type];
+    const limitField = limitMap[type];
+
+    if (!countField || !limitField) throw new Error("Invalid usage type");
+
+    if (user[countField] >= limits[limitField]) {
+      const err = new Error(`Monthly limit reached for ${type}`);
+      err.statusCode = 403;
+      throw err;
+    }
+
+    return true;
+  };
+
   fastify.decorate("usage", {
     checkAndIncrement,
+    checkOnly,
     LIMITS,
   });
 }

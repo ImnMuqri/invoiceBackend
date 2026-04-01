@@ -85,8 +85,24 @@ async function invoiceRoutes(fastify, opts) {
         throw err;
       }
 
-      const { clientId, items, template, fromCompanyName, ...invoiceData } =
-        request.body;
+      const {
+        clientId,
+        items,
+        template,
+        fromCompanyName,
+        usedAi,
+        ...invoiceData
+      } = request.body;
+
+      // Handle AI usage increment if the builder was used
+      if (usedAi) {
+        try {
+          await fastify.usage.checkAndIncrement(request.user.id, "ai");
+        } catch (err) {
+          if (err.statusCode === 403) return reply.forbidden(err.message);
+          throw err;
+        }
+      }
 
       // Calculate amount from items if not provided
       const amount =
@@ -132,8 +148,19 @@ async function invoiceRoutes(fastify, opts) {
         invoiceNumber,
         template,
         fromCompanyName,
+        usedAi,
         ...invoiceData
       } = request.body;
+
+      // Handle AI usage increment if the builder was used in this session
+      if (usedAi) {
+        try {
+          await fastify.usage.checkAndIncrement(request.user.id, "ai");
+        } catch (err) {
+          if (err.statusCode === 403) return reply.forbidden(err.message);
+          throw err;
+        }
+      }
 
       const updateData = {
         ...invoiceData,

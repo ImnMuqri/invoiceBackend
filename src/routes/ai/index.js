@@ -25,8 +25,8 @@ async function aiRoutes(fastify, opts) {
 
   fastify.post("/parse-invoice", async (request, reply) => {
     try {
-      // Usage check
-      await fastify.usage.checkAndIncrement(request.user.id, "ai");
+      // Usage check (Only check if credits available, don't increment yet)
+      await fastify.usage.checkOnly(request.user.id, "ai");
 
       const { currentFormState, instruction } = request.body;
 

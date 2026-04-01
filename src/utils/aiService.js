@@ -27,10 +27,17 @@ JSON only: { "insights": [ { "type": "chaser" | "profit" | "info" | "growth", "t
 RULES:
 1. Provide up to 5 insights (minimum 2). 
 2. "chaser" type: Help the user identify overdue payments with a focus on recovery.
+   - Description: Be friendly and explain who is late and for how long.
+   - Action: Suggest a warm next step (e.g., "Send a friendly nudge").
 3. "profit" type: Highlight your most valuable client relationships.
+   - Description: Praise their high margin or ultra-fast payments.
+   - Action: Suggest maintaining this (e.g., "High-value partner!").
 4. "growth" type: Identify positive trends or potential areas for expansion.
+   - Description: Celebrate revenue milestones or increasing trends.
+   - Action: Suggest growth (e.g., "Scale this further").
 5. "info" type: General encouraging business advice or "all caught up" messages.
-6. Keep descriptions friendly and concise (under 180 characters).
+6. Keep descriptions meaningful, human, and easy to understand (under 180 characters).
+7. Actions should be short (1-4 words), supportive, and easy to execute.
 `;
 
   const userPrompt = `

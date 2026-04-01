@@ -121,38 +121,7 @@ async function dashboardRoutes(fastify, opts) {
         ) {
           const { generateInsights } = require("../../utils/aiService");
 
-          // Usage check (AI insights consume 1 credit)
-          try {
-            await fastify.usage.checkAndIncrement(user.id, "ai");
-          } catch (err) {
-            // If credit limit reached, just use cached
-            return {
-              stats: {
-                totalRevenue: parseFloat(totalRevenue.toFixed(2)),
-                outstandingAmount: parseFloat(outstandingAmount.toFixed(2)),
-                overdueCount,
-                activeClients: activeClientsCount,
-                currency: targetCurrency,
-              },
-              recentInvoices,
-              topClients,
-              usageLimits: PLAN_LIMITS[plan] || PLAN_LIMITS.FREE,
-              insights: cachedInsights,
-            };
-          }
-
-          // Fetch fresh overdue context for AI
-          const overdueInvoicesContext = await prisma.invoice.findMany({
-            where: { userId: user.id, status: "Overdue" },
-            select: {
-              amount: true,
-              currency: true,
-              dueDate: true,
-              client: { select: { name: true } },
-            },
-            take: 5,
-          });
-
+          // AI insights no longer consume credits, just cooldown-managed
           const aiContext = {
             currency: targetCurrency,
             totalRevenue,
@@ -186,7 +155,7 @@ async function dashboardRoutes(fastify, opts) {
         FREE: {
           waSends: 0,
           emailSends: 5,
-          aiCredits: 0,
+          aiCredits: 2,
           waReminders: 0,
           emailReminders: 0,
           invoices: 5,
