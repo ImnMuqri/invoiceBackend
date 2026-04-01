@@ -49,7 +49,7 @@ async function analyticsRoutes(fastify, opts) {
       });
 
       // Revenue Trends (Daily)
-      const targetCurrency = "USD";
+      const targetCurrency = "MYR";
 
       // 1. Skip user invoices for revenue, but fetch for activity counts
       const [paidInvoices, activeSubscriptions] = await Promise.all([
@@ -213,7 +213,7 @@ async function analyticsRoutes(fastify, opts) {
       const startDate = new Date(year, month - 1, 1);
       const endDate = new Date(year, month, 0, 23, 59, 59);
 
-      const targetCurrency = "USD";
+      const targetCurrency = "MYR";
       const activeSubs = await prisma.subscription.findMany({
         where: {
           status: "ACTIVE",
