@@ -121,12 +121,30 @@ async function invoiceRoutes(fastify, opts) {
         latePrediction = "Medium";
       }
 
+      // 1. Get the user's custom prefix
+      const user = await prisma.user.findUnique({
+        where: { id: request.user.id },
+        select: { invoicePrefix: true },
+      });
+      const prefix = user?.invoicePrefix || "INV";
+
+      // 2. Find the highest userInvoiceNumber for this user
+      const lastInvoice = await prisma.invoice.findFirst({
+        where: { userId: request.user.id },
+        orderBy: { userInvoiceNumber: "desc" },
+        select: { userInvoiceNumber: true },
+      });
+
+      const nextNumber = (lastInvoice?.userInvoiceNumber || 0) + 1;
+
       const invoice = await prisma.invoice.create({
         data: {
           ...invoiceData,
           fromCompanyName,
           amount,
           latePrediction,
+          userInvoiceNumber: nextNumber,
+          invoiceNumber: `${prefix}-${nextNumber.toString().padStart(4, "0")}`,
           template: template || "professional",
           user: { connect: { id: request.user.id } },
           client: { connect: { id: Number(clientId) } },
@@ -140,14 +158,7 @@ async function invoiceRoutes(fastify, opts) {
         include: { items: true, client: true },
       });
 
-      // Update with ID-based invoice number
-      const updatedInvoice = await prisma.invoice.update({
-        where: { id: invoice.id },
-        data: {
-          invoiceNumber: `INVK-${invoice.id.toString().padStart(4, "0")}`,
-        },
-        include: { items: true, client: true },
-      });
+      const updatedInvoice = invoice; // No need for second update now
 
       return { ...updatedInvoice, message: "Invoice created successfully" };
     });
