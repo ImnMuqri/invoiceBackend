@@ -62,7 +62,7 @@ async function createRecurringPlan(user, planName, discount = null) {
           given_names: user.name || "User",
         },
         email: user.email,
-        mobile_number: user.phone || undefined,
+        mobile_number: user.companyPhone || user.phoneNumber || undefined,
       },
       {
         headers: {
