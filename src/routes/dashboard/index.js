@@ -165,16 +165,16 @@ async function dashboardRoutes(fastify, opts) {
           emailSends: 100,
           aiCredits: 20,
           waReminders: 50,
-          emailReminders: 50,
-          invoices: 30,
+          emailReminders: 100,
+          invoices: 100,
         },
         MAX: {
           waSends: 100,
-          emailSends: 100,
+          emailSends: 999999, // Unlimited
           aiCredits: 100,
           waReminders: 100,
-          emailReminders: 100,
-          invoices: 100,
+          emailReminders: 999999, // Unlimited
+          invoices: 999999, // Unlimited
         },
       };
 
