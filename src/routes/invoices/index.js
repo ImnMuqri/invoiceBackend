@@ -109,11 +109,24 @@ async function invoiceRoutes(fastify, opts) {
         invoiceData.amount ||
         items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
+      // Fetch client for late prediction
+      const client = await prisma.client.findUnique({
+        where: { id: Number(clientId) },
+      });
+
+      let latePrediction = "Low";
+      if (client && client.averageDelayDays > 10) {
+        latePrediction = "High";
+      } else if (client && client.averageDelayDays > 3) {
+        latePrediction = "Medium";
+      }
+
       const invoice = await prisma.invoice.create({
         data: {
           ...invoiceData,
           fromCompanyName,
           amount,
+          latePrediction,
           template: template || "professional",
           user: { connect: { id: request.user.id } },
           client: { connect: { id: Number(clientId) } },
@@ -142,6 +155,7 @@ async function invoiceRoutes(fastify, opts) {
     // PUT update invoice
     protectedInstance.put("/:id", async (request, reply) => {
       const id = Number(request.params.id);
+      const { markInvoiceAsPaid } = require("../../utils/invoiceUtils");
       const {
         clientId,
         items,
@@ -169,6 +183,13 @@ async function invoiceRoutes(fastify, opts) {
         invoiceNumber: `INVK-${id.toString().padStart(4, "0")}`,
       };
 
+      // If status is being updated to "Paid" manually, use the utility to update metrics
+      if (invoiceData.status === "Paid") {
+        await markInvoiceAsPaid(prisma, id);
+        // Remove status from updateData to avoid double-updating or overriding paidAt later
+        delete updateData.status;
+      }
+
       // Only handle amount if explicitly provided or items changed
       if (request.body.amount !== undefined) {
         updateData.amount = request.body.amount;
@@ -177,6 +198,24 @@ async function invoiceRoutes(fastify, opts) {
           (sum, item) => sum + item.price * item.quantity,
           0,
         );
+      }
+
+      // Calculate late prediction for updates as well
+      const currentClientId = clientId ? Number(clientId) : null;
+      if (currentClientId) {
+        const client = await prisma.client.findUnique({
+          where: { id: currentClientId },
+        });
+
+        if (client) {
+          let latePrediction = "Low";
+          if (client.averageDelayDays > 10) {
+            latePrediction = "High";
+          } else if (client.averageDelayDays > 3) {
+            latePrediction = "Medium";
+          }
+          updateData.latePrediction = latePrediction;
+        }
       }
 
       if (clientId) {

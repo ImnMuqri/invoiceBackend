@@ -18,6 +18,10 @@ Rules:
 10. Registration: If the client is NOT in the list, or if the user provides new specific details (different address/company/phone), return a "manualClient" object.
 11. Mandatory Fields: New clients MUST have "name", "email", and "phone". If missing, return exactly: {"error":"New clients must provide a Name, Email, and Phone Number to proceed."}
 12. Edit Guard: If the flag IS_EDIT is true, you are strictly forbidden from changing the client. Do NOT return "clientId", "manualClient", or "showManualClient". If the user asks to change the client, return exactly: {"error":"Sorry, the billed client cannot be changed for an existing invoice. Please create a new invoice if you need to bill a different client."}
+13. Protected Field: The "invoiceNumber" is strictly read-only. If the user asks to change it, return exactly: {"error":"The invoice number is permanent and cannot be changed."}
+14. Currencies: We only support "MYR", "USD", and "EUR". If the user asks for any other currency, return exactly: {"error":"Sorry, we only support MYR, USD, and EUR at the moment."}
+15. Calculations: Do NOT return "amount" or "total". To change the price, update "lineItems". To apply a discount, update "discountPercentage" (0-100) and set "addDiscount" to true.
+16. Memory: You do not see chat history. If the user asks to "undo", "restore", or "revert", you must explain that you don't have memory of the previous state and ask them for the specific change again.
 `;
 
 async function aiRoutes(fastify, opts) {
@@ -72,6 +76,10 @@ async function aiRoutes(fastify, opts) {
 
       // Validation Layer: Protect "From" details and restrict currencies
       if (parsedUpdate.from) delete parsedUpdate.from;
+      if (parsedUpdate.invoiceNumber) delete parsedUpdate.invoiceNumber;
+      if (parsedUpdate.amount) delete parsedUpdate.amount;
+      if (parsedUpdate.total) delete parsedUpdate.total;
+
       if (isEdit) {
         if (parsedUpdate.clientId) delete parsedUpdate.clientId;
         if (parsedUpdate.manualClient) delete parsedUpdate.manualClient;

@@ -127,6 +127,7 @@ model Invoice {
   emailLastSent             DateTime?
   whatsappLastReminderSent  DateTime?
   emailLastReminderSent     DateTime?
+  paidAt                    DateTime?
   template                  String        @default("professional")
   items                     InvoiceItem[]
   createdAt                 DateTime      @default(now())
