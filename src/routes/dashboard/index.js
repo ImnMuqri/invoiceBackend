@@ -103,6 +103,22 @@ async function dashboardRoutes(fastify, opts) {
         }),
       );
 
+      // Fetch overdue invoices for AI context
+      const overdueInvoicesContext = await prisma.invoice.findMany({
+        where: {
+          userId: request.user.id,
+          OR: [
+            { status: "Overdue" },
+            {
+              status: "Pending",
+              dueDate: { lt: now },
+            },
+          ],
+        },
+        include: { client: true },
+        take: 5,
+      });
+
       // AI Insights logic (Generative AI with 2-day cooldown)
       let insights = [];
       if (plan !== "FREE") {
@@ -150,33 +166,19 @@ async function dashboardRoutes(fastify, opts) {
         }
       }
 
-      // Usage Limits Helper
-      const PLAN_LIMITS = {
-        FREE: {
-          waSends: 0,
-          emailSends: 5,
-          aiCredits: 2,
-          waReminders: 0,
-          emailReminders: 0,
-          invoices: 5,
-        },
-        PRO: {
-          waSends: 50,
-          emailSends: 100,
-          aiCredits: 20,
-          waReminders: 50,
-          emailReminders: 100,
-          invoices: 100,
-        },
-        MAX: {
-          waSends: 100,
-          emailSends: 999999, // Unlimited
-          aiCredits: 100,
-          waReminders: 100,
-          emailReminders: 999999, // Unlimited
-          invoices: 999999, // Unlimited
-        },
-      };
+      // Usage Limits Helper (Dynamic from DB)
+      const allPlans = await prisma.plan.findMany();
+      const planLimits = allPlans.reduce((acc, p) => {
+        acc[p.name] = {
+          waSends: p.waSends,
+          emailSends: p.emailSends,
+          aiCredits: p.aiCredits,
+          waReminders: p.waReminders,
+          emailReminders: p.emailReminders,
+          invoices: p.invoices,
+        };
+        return acc;
+      }, {});
 
       return {
         stats: {
@@ -188,7 +190,7 @@ async function dashboardRoutes(fastify, opts) {
         },
         recentInvoices,
         topClients,
-        usageLimits: PLAN_LIMITS[plan] || PLAN_LIMITS.FREE,
+        usageLimits: planLimits[plan] || planLimits.FREE || {},
         insights,
       };
     } catch (error) {

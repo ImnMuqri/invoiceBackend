@@ -184,3 +184,21 @@ model PromoCode {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+model Plan {
+  id              Int      @id @default(autoincrement())
+  name            String   @unique
+  description     String?
+  price           Float    @default(0.0)
+  currency        String   @default("MYR")
+  interval        String   @default("month")
+  waSends         Int      @default(0)
+  emailSends      Int      @default(0)
+  aiCredits       Int      @default(0)
+  waReminders     Int      @default(0)
+  emailReminders  Int      @default(0)
+  invoices        Int      @default(0)
+  features        String[]
+  isPublic        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
