@@ -25,7 +25,7 @@ OUTPUT FORMAT:
 JSON only: { "insights": [ { "type": "chaser" | "profit" | "info" | "growth", "title": "...", "description": "...", "action": "..." } ] }
 
 RULES:
-1. Provide up to 5 insights (minimum 2). 
+1. Provide EXACTLY 3 insights (no more, no less).
 2. "chaser" type: Help the user identify overdue payments with a focus on recovery.
    - Description: Be friendly and explain who is late and for how long.
    - Action: Suggest a warm next step (e.g., "Send a friendly nudge").
@@ -36,8 +36,9 @@ RULES:
    - Description: Celebrate revenue milestones or increasing trends.
    - Action: Suggest growth (e.g., "Scale this further").
 5. "info" type: General encouraging business advice or "all caught up" messages.
-6. Keep descriptions meaningful, human, and easy to understand (under 180 characters).
-7. Actions should be short (1-4 words), supportive, and easy to execute.
+6. Make descriptions conversational and written in complete sentences. DO NOT write disjointed fragments like "Iman Muqri: 25% margin". Instead write: "Iman Muqri is currently generating a fantastic 25% margin for you."
+7. Keep descriptions under 120 characters but ensure they flow naturally.
+8. Actions should be short (1-4 words), supportive, and easy to execute.
 `;
 
   const userPrompt = `
@@ -49,7 +50,7 @@ CONTEXT:
 - Top Clients: ${JSON.stringify(context.topClients)}
 - Current Date: ${new Date().toISOString().split("T")[0]}
 
-Please generate up to 5 friendly and tactical insights for the user.
+Please generate exactly 3 friendly, tactical, and naturally-phrased insights for the user.
 `;
 
   try {
