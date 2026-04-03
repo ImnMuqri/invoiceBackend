@@ -253,20 +253,6 @@ async function userRoutes(fastify, opts) {
     }
   });
 
-  // GET /plans - List all public plans
-  fastify.get("/plans", async (request, reply) => {
-    try {
-      const plans = await prisma.plan.findMany({
-        where: { isPublic: true },
-        orderBy: { price: "asc" },
-      });
-      return plans;
-    } catch (error) {
-      fastify.log.error(error);
-      return reply.internalServerError("Failed to fetch plans");
-    }
-  });
-
   // Register settings routes
   fastify.register(require("./settings"), { prefix: "/settings" });
   fastify.register(require("./payments"), { prefix: "/payments" });
