@@ -34,7 +34,7 @@ async function aiRoutes(fastify, opts) {
 
   fastify.post("/parse-invoice", async (request, reply) => {
     try {
-      // Usage check (Only check if credits available, don't increment yet)
+      // 1. Initial check (prevent usage if already at limit)
       await fastify.usage.checkOnly(request.user.id, "ai");
 
       const { currentFormState, instruction, isEdit } = request.body;
@@ -55,6 +55,7 @@ async function aiRoutes(fastify, opts) {
         },
       });
 
+      // 2. Call Groq
       const chatCompletion = await groq.chat.completions.create({
         messages: [
           {
@@ -73,6 +74,9 @@ async function aiRoutes(fastify, opts) {
 
       const replyContent = chatCompletion.choices[0]?.message?.content || "{}";
       const parsedUpdate = JSON.parse(replyContent);
+
+      // 3. Increment usage after successful AI response
+      await fastify.usage.checkAndIncrement(request.user.id, "ai");
 
       // Validation Layer: Protect "From" details and restrict currencies
       if (parsedUpdate.from) delete parsedUpdate.from;
