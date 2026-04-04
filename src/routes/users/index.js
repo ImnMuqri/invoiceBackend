@@ -57,6 +57,9 @@ async function userRoutes(fastify, opts) {
         currentStatus: data.currentStatus,
         onboardingCompleted: data.onboardingCompleted,
         defaultCurrency: data.defaultCurrency,
+        companyName: data.companyName,
+        companyEmail: data.companyEmail,
+        companyPhone: data.companyPhone,
       },
       select: {
         id: true,
@@ -66,6 +69,9 @@ async function userRoutes(fastify, opts) {
         currentStatus: true,
         onboardingCompleted: true,
         defaultCurrency: true,
+        companyName: true,
+        companyEmail: true,
+        companyPhone: true,
         plan: true,
       },
     });
