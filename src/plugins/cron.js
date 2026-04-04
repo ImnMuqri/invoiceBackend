@@ -8,32 +8,31 @@ async function cronPlugin(fastify, opts) {
 
     try {
       const now = new Date();
-      
+
       // 1. Find users who have automated reminders enabled
       const users = await fastify.prisma.user.findMany({
         where: {
           globalAutoChaser: true,
           reminderInterval: { not: 0 },
-          plan: { in: ["PRO", "MAX"] } // Optimization: Save DB/Processing if not Pro
+          plan: { in: ["PRO", "MAX"] }, // Optimization: Save DB/Processing if not Pro
         },
       });
 
-      fastify.log.info(`Found ${users.length} users with automated reminders enabled.`);
+      fastify.log.info(
+        `Found ${users.length} users with automated reminders enabled.`,
+      );
 
       for (const user of users) {
         const interval = user.reminderInterval;
-        
+
         // 2. Find pending/overdue invoices for this user
         const pendingInvoices = await fastify.prisma.invoice.findMany({
           where: {
             userId: user.id,
             status: { in: ["Pending", "Overdue"] },
             client: {
-              OR: [
-                { autoChaser: true },
-                { autoEmailChaser: true }
-              ]
-            }
+              OR: [{ autoChaser: true }, { autoEmailChaser: true }],
+            },
           },
           include: { client: true },
         });
@@ -41,20 +40,22 @@ async function cronPlugin(fastify, opts) {
         for (const invoice of pendingInvoices) {
           let shouldRemind = false;
           const dueDate = new Date(invoice.dueDate);
-          
+
           if (interval < 0) {
             // Before Due Date logic (e.g., -3 means 3 days before)
             const daysBefore = Math.abs(interval);
             const targetDate = new Date(dueDate);
             targetDate.setDate(targetDate.getDate() - daysBefore);
             targetDate.setHours(0, 0, 0, 0);
-            
+
             const today = new Date(now);
             today.setHours(0, 0, 0, 0);
 
             // If today is on or after the target date AND we haven't sent a reminder yet for this window
             if (today >= targetDate && today < dueDate) {
-              const lastSent = invoice.emailLastReminderSent || invoice.whatsappLastReminderSent;
+              const lastSent =
+                invoice.emailLastReminderSent ||
+                invoice.whatsappLastReminderSent;
               if (!lastSent || lastSent < targetDate) {
                 shouldRemind = true;
               }
@@ -62,7 +63,9 @@ async function cronPlugin(fastify, opts) {
           } else if (interval > 0) {
             // After Due Date logic (e.g., 3 means every 3 days)
             if (now > dueDate) {
-              const lastSent = invoice.emailLastReminderSent || invoice.whatsappLastReminderSent;
+              const lastSent =
+                invoice.emailLastReminderSent ||
+                invoice.whatsappLastReminderSent;
               if (!lastSent) {
                 shouldRemind = true;
               } else {
@@ -86,7 +89,9 @@ async function cronPlugin(fastify, opts) {
   };
 
   const sendAutomatedReminder = async (user, invoice) => {
-    const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/['"]/g, "").replace(/\/$/, "");
+    const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000")
+      .replace(/['"]/g, "")
+      .replace(/\/$/, "");
     const invoiceUrl = `${frontendUrl}/pay/${invoice.id}`;
 
     // 1. Email Reminder
@@ -118,9 +123,13 @@ async function cronPlugin(fastify, opts) {
           data: { emailLastReminderSent: new Date() },
         });
 
-        fastify.log.info(`Auto Email Reminder sent for Invoice #${invoice.invoiceNumber}`);
+        fastify.log.info(
+          `Auto Email Reminder sent for Invoice #${invoice.invoiceNumber}`,
+        );
       } catch (err) {
-        fastify.log.error(`Auto Email failed for #${invoice.id}: ${err.message}`);
+        fastify.log.error(
+          `Auto Email failed for #${invoice.id}: ${err.message}`,
+        );
       }
     }
 
@@ -129,7 +138,9 @@ async function cronPlugin(fastify, opts) {
       try {
         await fastify.usage.checkAndIncrement(user.id, "waReminder");
 
-        const template = user.whatsappReminderTemplate || "Friendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. View: {{invoiceUrl}}";
+        const template =
+          user.whatsappReminderTemplate ||
+          "Friendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. View: {{invoiceUrl}}";
         const message = template
           .replace(/{{userName}}/g, user.name || "")
           .replace(/{{companyName}}/g, user.companyName || "InvoKita User")
@@ -138,14 +149,25 @@ async function cronPlugin(fastify, opts) {
           .replace(/{{totalAmount}}/g, invoice.amount.toLocaleString())
           .replace(/{{currency}}/g, invoice.currency)
           .replace(/{{invoiceUrl}}/g, invoiceUrl)
-          .replace(/{{dueDate}}/g, new Date(invoice.dueDate).toLocaleDateString());
+          .replace(
+            /{{dueDate}}/g,
+            new Date(invoice.dueDate).toLocaleDateString(),
+          );
 
         let credentials = null;
         if (user.whatsappMode === "CUSTOM") {
-          credentials = { sid: user.twilioSid, token: user.twilioAuthToken, phoneNumber: user.twilioPhoneNumber };
+          credentials = {
+            sid: user.twilioSid,
+            token: user.twilioAuthToken,
+            phoneNumber: user.twilioPhoneNumber,
+          };
         }
 
-        await fastify.whatsapp.sendMessage(invoice.client.phone, message, credentials);
+        await fastify.whatsapp.sendMessage(
+          invoice.client.phone,
+          message,
+          credentials,
+        );
 
         await fastify.prisma.invoice.update({
           where: { id: invoice.id },
@@ -154,14 +176,12 @@ async function cronPlugin(fastify, opts) {
             whatsappStatus: "Sent Reminder",
           },
         });
-        fastify.log.info(`Auto WA Reminder sent for Invoice #${invoice.invoiceNumber}`);
+        fastify.log.info(
+          `Auto WA Reminder sent for Invoice #${invoice.invoiceNumber}`,
+        );
       } catch (err) {
         fastify.log.error(`Auto WA failed for #${invoice.id}: ${err.message}`);
       }
-    }
-  };
-    } catch (error) {
-      fastify.log.error("Error in cron reminder job: " + error.message);
     }
   };
 
