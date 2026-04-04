@@ -2,6 +2,15 @@ async function xenditWebhooks(fastify, opts) {
   const { prisma } = fastify;
 
   fastify.post("/xendit", async (request, reply) => {
+    // 🛡️ Security: Verify X-Callback-Token
+    const callbackToken = process.env.XENDIT_CALLBACK_TOKEN;
+    const headerToken = request.headers["x-callback-token"];
+
+    if (callbackToken && headerToken !== callbackToken) {
+      fastify.log.warn("Unauthorized Xendit webhooks attempt detected");
+      return reply.unauthorized("Invalid callback token");
+    }
+
     const payload = request.body;
 
     // Acknowledge webhook quickly

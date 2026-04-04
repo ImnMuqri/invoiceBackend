@@ -64,14 +64,27 @@ async function settingsRoutes(fastify, opts) {
       (field) => data[field] !== undefined,
     );
 
-    if (isUpdatingWhatsapp) {
+    const isUpdatingReminders =
+      (data.reminderInterval !== undefined && data.reminderInterval !== 0) ||
+      data.globalAutoChaser === true;
+
+    if (isUpdatingWhatsapp || isUpdatingReminders) {
       const user = await prisma.user.findUnique({
         where: { id: request.user.id },
         select: { plan: true },
       });
 
       if (user.plan === "FREE") {
-        return reply.forbidden("Upgrade to Pro to configure WhatsApp settings");
+        if (isUpdatingWhatsapp) {
+          return reply.forbidden(
+            "Upgrade to Pro to configure WhatsApp settings",
+          );
+        }
+        if (isUpdatingReminders) {
+          return reply.forbidden(
+            "Upgrade to Pro to enable automated reminders",
+          );
+        }
       }
     }
 
