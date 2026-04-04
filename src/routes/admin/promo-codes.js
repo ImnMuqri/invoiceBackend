@@ -40,6 +40,34 @@ async function promoCodeRoutes(fastify, opts) {
     }
   });
 
+  // PUT /api/admin/promo-codes/:id - Update an existing promo code
+  fastify.put("/:id", async (request, reply) => {
+    try {
+      const { id } = request.params;
+      const { code, discountType, discountValue, maxUses, expiresAt } =
+        request.body;
+
+      const updatedPromo = await prisma.promoCode.update({
+        where: { id: parseInt(id) },
+        data: {
+          code: code.toUpperCase(),
+          discountType,
+          discountValue,
+          maxUses: maxUses ? parseInt(maxUses) : null,
+          expiresAt: expiresAt ? new Date(expiresAt) : null,
+        },
+      });
+
+      return updatedPromo;
+    } catch (error) {
+      if (error.code === "P2002") {
+        return reply.badRequest("Promo code already exists");
+      }
+      fastify.log.error(error);
+      return reply.internalServerError("Failed to update promo code");
+    }
+  });
+
   // DELETE /api/admin/promo-codes/:id - Delete a promo code
   fastify.delete("/:id", async (request, reply) => {
     try {
