@@ -168,6 +168,8 @@ async function userRoutes(fastify, opts) {
         user,
         plan,
         discount,
+        request.body.successUrl,
+        request.body.failureUrl,
       );
 
       // Update user with customerId if newly created

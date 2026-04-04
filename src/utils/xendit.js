@@ -9,7 +9,13 @@ const getAuthToken = () => {
  * Creates a recurring plan in Xendit.
  * Billed monthly.
  */
-async function createRecurringPlan(user, planName, discount = null) {
+async function createRecurringPlan(
+  user,
+  planName,
+  discount = null,
+  successUrl = null,
+  failureUrl = null,
+) {
   // Determine pricing based on plan
   let amount = 0;
   if (planName === "PRO") amount = 59;
@@ -46,8 +52,12 @@ async function createRecurringPlan(user, planName, discount = null) {
       recurring_succeeded: ["EMAIL"],
       recurring_failed: ["EMAIL"],
     },
-    success_return_url: `${process.env.FRONTEND_URL || "http://localhost:3000"}/settings?tab=billing&success=true`,
-    failure_return_url: `${process.env.FRONTEND_URL || "http://localhost:3000"}/settings?tab=billing&failed=true`,
+    success_return_url:
+      successUrl ||
+      `${process.env.FRONTEND_URL || "http://localhost:3000"}/settings?tab=billing&success=true`,
+    failure_return_url:
+      failureUrl ||
+      `${process.env.FRONTEND_URL || "http://localhost:3000"}/settings?tab=billing&failed=true`,
   };
 
   // 1. If no xenditCustomerId, create a Customer first
