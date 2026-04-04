@@ -86,6 +86,47 @@ async function xenditWebhooks(fastify, opts) {
             },
           });
 
+          // Reset First-Time Discount for subsequent months
+          let basePrice = 0;
+          const planRecord = await prisma.plan.findUnique({
+            where: { name: planName },
+          });
+          if (planRecord && planRecord.price) {
+            basePrice = planRecord.price;
+          }
+          const currentAmount = data.amount || basePrice; // use webhook amount
+          if (basePrice > 0 && currentAmount < basePrice) {
+            try {
+              const axios = require("axios");
+              const secretKey = process.env.XENDIT_SECRET_KEY || "";
+              const token = Buffer.from(secretKey + ":").toString("base64");
+
+              await axios.patch(
+                `https://api.xendit.co/recurring/plans/${xenditSubscriptionId}`,
+                { amount: basePrice },
+                {
+                  headers: {
+                    Authorization: `Basic ${token}`,
+                    "Content-Type": "application/json",
+                  },
+                },
+              );
+              fastify.log.info(
+                `Reset Xendit Plan ${xenditSubscriptionId} from ${currentAmount} to base price ${basePrice} for subsequent cycles.`,
+              );
+
+              // Also update local DB
+              await prisma.subscription.update({
+                where: { xenditSubscriptionId: xenditSubscriptionId },
+                data: { amount: basePrice },
+              });
+            } catch (err) {
+              fastify.log.error(
+                "Failed to reset Xendit plan amount: " + err.message,
+              );
+            }
+          }
+
           fastify.log.info(
             `Upgraded User ${userId} to ${planName} via Xendit webhook`,
           );

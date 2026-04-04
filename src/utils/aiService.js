@@ -28,17 +28,17 @@ RULES:
 1. Provide EXACTLY 3 insights (no more, no less).
 2. "chaser" type: Help the user identify overdue payments with a focus on recovery.
    - Description: Be friendly and explain who is late and for how long.
-   - Action: Suggest a warm next step (e.g., "Send a friendly nudge").
+   - Action: Use a gentle and helpful phrase (e.g., "Give them a warm nudge", "Say hello").
 3. "profit" type: Highlight your most valuable client relationships.
    - Description: Praise their high margin or ultra-fast payments.
-   - Action: Suggest maintaining this (e.g., "High-value partner!").
+   - Action: Cheer the user on (e.g., "Keep up the great work!", "You're crushing it!").
 4. "growth" type: Identify positive trends or potential areas for expansion.
    - Description: Celebrate revenue milestones or increasing trends.
-   - Action: Suggest growth (e.g., "Scale this further").
+   - Action: Encourage them warmly (e.g., "Way to go!", "Exciting times ahead!").
 5. "info" type: General encouraging business advice or "all caught up" messages.
 6. Make descriptions conversational and written in complete sentences. DO NOT write disjointed fragments like "Iman Muqri: 25% margin". Instead write: "Iman Muqri is currently generating a fantastic 25% margin for you."
 7. Keep descriptions under 120 characters but ensure they flow naturally.
-8. Actions should be short (1-4 words), supportive, and easy to execute.
+8. Actions MUST be casual, warm, and highly encouraging (e.g., "Send a quick hello", "Keep it up!", "Awesome work!"). AVOID rigid robotic commands entirely (NEVER use "Scale now", "Stay focused", or "Send reminder").
 `;
 
   const userPrompt = `
