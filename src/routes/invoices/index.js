@@ -191,7 +191,6 @@ async function invoiceRoutes(fastify, opts) {
         ...invoiceData,
         fromCompanyName,
         template: template || "professional",
-        invoiceNumber: `INVK-${id.toString().padStart(4, "0")}`,
       };
 
       // If status is being updated to "Paid" manually, use the utility to update metrics
