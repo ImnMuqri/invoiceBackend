@@ -4,7 +4,7 @@ async function publicPlansRoutes(fastify, opts) {
   fastify.get("/", async (request, reply) => {
     try {
       const plans = await prisma.plan.findMany({
-        where: { isPublic: true },
+        where: { isActive: true },
         orderBy: { price: "asc" },
       });
       return plans;

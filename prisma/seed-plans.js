@@ -16,7 +16,7 @@ async function main() {
       emailReminders: 0,
       invoices: 5,
       features: ["5 Invoices/mo", "5 Email Deliveries/mo"],
-      isPublic: true,
+      isActive: true,
     },
     {
       name: "PRO",
@@ -37,7 +37,7 @@ async function main() {
         "20 AI Drafts/mo",
         "Auto-Chaser",
       ],
-      isPublic: true,
+      isActive: true,
     },
     {
       name: "MAX",
@@ -59,7 +59,7 @@ async function main() {
         "Auto-Chaser",
         "White Labelling",
       ],
-      isPublic: true,
+      isActive: true,
     },
   ];
 
