@@ -180,6 +180,21 @@ async function dashboardRoutes(fastify, opts) {
         return acc;
       }, {});
 
+      // Fetch global system configuration
+      let systemConfig = await prisma.systemConfiguration.findFirst();
+      if (!systemConfig) {
+        systemConfig = await prisma.systemConfiguration.create({
+          data: {
+            whatsappEnabled: true,
+            emailEnabled: true,
+            invoiceCreationEnabled: true,
+            paymentsEnabled: true,
+            globalNotice: null,
+            maintenanceMode: false,
+          }
+        });
+      }
+
       return {
         stats: {
           totalRevenue: parseFloat(totalRevenue.toFixed(2)),
@@ -191,6 +206,7 @@ async function dashboardRoutes(fastify, opts) {
         recentInvoices,
         topClients,
         usageLimits: planLimits[plan] || planLimits.FREE || {},
+        system: systemConfig,
         insights,
       };
     } catch (error) {

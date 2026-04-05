@@ -153,6 +153,8 @@ async function adminRoutes(fastify, opts) {
   fastify.register(require("./transactions"), { prefix: "/transactions" });
   // Register plan routes
   fastify.register(require("./plans"), { prefix: "/plans" });
+  // Register system routes
+  fastify.register(require("./system"), { prefix: "/system" });
 }
 
 module.exports = adminRoutes;

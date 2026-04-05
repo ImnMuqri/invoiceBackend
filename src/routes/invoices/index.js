@@ -31,7 +31,26 @@ async function invoiceRoutes(fastify, opts) {
     if (!invoice) {
       return reply.notFound("Invoice not found");
     }
-    return invoice;
+
+    // Fetch global system configuration for public toggles (Email/WA/Payments)
+    let systemConfig = await prisma.systemConfiguration.findFirst();
+    if (!systemConfig) {
+      systemConfig = await prisma.systemConfiguration.create({
+        data: {
+          whatsappEnabled: true,
+          emailEnabled: true,
+          invoiceCreationEnabled: true,
+          paymentsEnabled: true,
+          globalNotice: null,
+          maintenanceMode: false,
+        }
+      });
+    }
+
+    return {
+      ...invoice,
+      system: systemConfig
+    };
   });
 
   // GET invoice PDF (Public for payment page)
