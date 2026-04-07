@@ -6,10 +6,10 @@ async function main() {
 
   // Create some clients
   const client1 = await prisma.client.upsert({
-    where: { id: "CLI-001" },
+    where: { id: 1 },
     update: {},
     create: {
-      id: "CLI-001",
+      id: 1,
       name: "Acme Corp",
       email: "billing@acmecorp.com",
       company: "Acme Corp LLC",
@@ -21,10 +21,10 @@ async function main() {
   });
 
   const client2 = await prisma.client.upsert({
-    where: { id: "CLI-002" },
+    where: { id: 2 },
     update: {},
     create: {
-      id: "CLI-002",
+      id: 2,
       name: "Stark Industries",
       email: "tony@stark.com",
       company: "Stark Industries",
@@ -36,10 +36,10 @@ async function main() {
   });
 
   const client3 = await prisma.client.upsert({
-    where: { id: "CLI-003" },
+    where: { id: 3 },
     update: {},
     create: {
-      id: "CLI-003",
+      id: 3,
       name: "Wayne Enterprises",
       email: "finance@wayne.com",
       company: "Wayne Enterprises",
@@ -52,10 +52,10 @@ async function main() {
 
   // Create some invoices
   await prisma.invoice.upsert({
-    where: { id: "INVK-2023-001" },
+    where: { id: 1 },
     update: {},
     create: {
-      id: "INVK-2023-001",
+      id: 1,
       clientId: client1.id,
       date: new Date("2023-10-01"),
       dueDate: new Date("2023-10-15"),
@@ -68,10 +68,10 @@ async function main() {
   });
 
   await prisma.invoice.upsert({
-    where: { id: "INVK-2023-002" },
+    where: { id: 2 },
     update: {},
     create: {
-      id: "INVK-2023-002",
+      id: 2,
       clientId: client2.id,
       date: new Date("2023-11-01"),
       dueDate: new Date("2023-11-15"),
@@ -85,10 +85,10 @@ async function main() {
   });
 
   await prisma.invoice.upsert({
-    where: { id: "INVK-2023-003" },
+    where: { id: 3 },
     update: {},
     create: {
-      id: "INVK-2023-003",
+      id: 3,
       clientId: client3.id,
       date: new Date("2023-11-20"),
       dueDate: new Date("2023-12-05"),
