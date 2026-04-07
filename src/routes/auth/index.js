@@ -38,11 +38,16 @@ async function authRoutes(fastify, opts) {
       data: {
         email,
         password: hashedPassword,
-        name,
         plan: "FREE",
         referredById: referrerId,
         referralCode: newReferralCode,
+        profile: {
+          create: {
+            name,
+          },
+        },
       },
+      include: { profile: true },
     });
 
     // If referred, we don't increment credits yet?
@@ -81,6 +86,7 @@ async function authRoutes(fastify, opts) {
     const user = await prisma.user.findUnique({
       where: { email },
       include: {
+        profile: true,
         subscriptions: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -124,13 +130,11 @@ async function authRoutes(fastify, opts) {
       user: {
         id: user.id,
         email: user.email,
-        name: user.name,
         plan: user.plan,
         role: user.role,
-        companyPhone: user.companyPhone,
-        reminderInterval: user.reminderInterval,
         onboardingCompleted: user.onboardingCompleted,
         subscriptions: user.subscriptions,
+        ...(user.profile || {}),
       },
     };
   });

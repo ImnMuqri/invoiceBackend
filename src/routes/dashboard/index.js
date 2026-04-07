@@ -12,8 +12,9 @@ async function dashboardRoutes(fastify, opts) {
       // Get user's default currency and plan
       const user = await prisma.user.findUnique({
         where: { id: request.user.id },
+        include: { profile: true },
       });
-      const targetCurrency = user.defaultCurrency || "MYR";
+      const targetCurrency = user.profile?.defaultCurrency || "MYR";
       const plan = user.plan || "FREE";
 
       // Fetch all relevant invoices for manual summation with conversion

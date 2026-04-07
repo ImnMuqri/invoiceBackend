@@ -12,13 +12,12 @@ async function cronPlugin(fastify, opts) {
       // 1. Find users who have automated reminders enabled (either Email or WA)
       const users = await fastify.prisma.user.findMany({
         where: {
-          globalAutoChaser: true,
+          profile: {
+            globalAutoChaser: true,
+          },
           plan: { in: ["PRO", "MAX"] },
-          OR: [
-            { reminderInterval: { not: 0 } },
-            { whatsappReminderInterval: { not: 0 } },
-          ],
         },
+        include: { profile: true },
       });
 
       fastify.log.info(
@@ -44,9 +43,9 @@ async function cronPlugin(fastify, opts) {
           today.setHours(0, 0, 0, 0);
 
           // --- 3a. Process Email Reminder ---
-          if (user.reminderInterval !== 0 && invoice.client.autoEmailChaser) {
+          if (user.profile?.reminderInterval !== 0 && invoice.client.autoEmailChaser) {
             let shouldRemindEmail = false;
-            const interval = user.reminderInterval;
+            const interval = user.profile.reminderInterval;
 
             if (interval < 0) {
               const daysBefore = Math.abs(interval);
@@ -81,11 +80,11 @@ async function cronPlugin(fastify, opts) {
 
           // --- 3b. Process WhatsApp Reminder ---
           if (
-            user.whatsappReminderInterval !== 0 &&
+            user.profile?.whatsappReminderInterval !== 0 &&
             invoice.client.autoChaser
           ) {
             let shouldRemindWa = false;
-            const interval = user.whatsappReminderInterval;
+            const interval = user.profile.whatsappReminderInterval;
 
             if (interval < 0) {
               const daysBefore = Math.abs(interval);
@@ -136,8 +135,8 @@ async function cronPlugin(fastify, opts) {
       const { getInvoiceEmailTemplate } = require("../utils/emailTemplates");
       const html = getInvoiceEmailTemplate({
         clientName: invoice.client.name,
-        senderName: user.name || "Our Company",
-        senderCompany: user.companyName,
+        senderName: user.profile?.name || "Our Company",
+        senderCompany: user.profile?.companyName,
         invoiceNumber: invoice.invoiceNumber || `#${invoice.id}`,
         amount: invoice.amount,
         currency: invoice.currency,
@@ -148,7 +147,7 @@ async function cronPlugin(fastify, opts) {
 
       await fastify.email.send({
         to: invoice.client.email,
-        subject: `Reminder: Invoice #${invoice.invoiceNumber || invoice.id} from ${user.companyName || user.name}`,
+        subject: `Reminder: Invoice #${invoice.invoiceNumber || invoice.id} from ${user.profile?.companyName || user.profile?.name}`,
         html,
       });
 
@@ -175,11 +174,11 @@ async function cronPlugin(fastify, opts) {
       await fastify.usage.checkAndIncrement(user.id, "waReminder");
 
       const template =
-        user.whatsappReminderTemplate ||
+        user.profile?.whatsappReminderTemplate ||
         "Friendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. View: {{invoiceUrl}}";
       const message = template
-        .replace(/{{userName}}/g, user.name || "")
-        .replace(/{{companyName}}/g, user.companyName || "InvoKita User")
+        .replace(/{{userName}}/g, user.profile?.name || "")
+        .replace(/{{companyName}}/g, user.profile?.companyName || "InvoKita User")
         .replace(/{{clientName}}/g, invoice.client.name)
         .replace(/{{invoiceNumber}}/g, invoice.invoiceNumber || invoice.id)
         .replace(/{{totalAmount}}/g, invoice.amount.toLocaleString())
@@ -191,11 +190,11 @@ async function cronPlugin(fastify, opts) {
         );
 
       let credentials = null;
-      if (user.whatsappMode === "CUSTOM") {
+      if (user.profile?.whatsappMode === "CUSTOM") {
         credentials = {
-          sid: user.twilioSid,
-          token: user.twilioAuthToken,
-          phoneNumber: user.twilioPhoneNumber,
+          sid: user.profile?.twilioSid,
+          token: user.profile?.twilioAuthToken,
+          phoneNumber: user.profile?.twilioPhoneNumber,
         };
       }
 

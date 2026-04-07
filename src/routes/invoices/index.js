@@ -7,16 +7,41 @@ async function invoiceRoutes(fastify, opts) {
     const id = Number(request.params.id);
     const invoice = await prisma.invoice.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        invoiceNumber: true,
+        invoiceName: true,
+        subject: true,
+        fromName: true,
+        fromCompanyName: true,
+        fromEmail: true,
+        fromAddress: true,
+        date: true,
+        dueDate: true,
+        amount: true,
+        currency: true,
+        status: true,
+        template: true,
+        createdAt: true,
         client: true,
         items: true,
         user: {
           select: {
             plan: true,
-            manualBankName: true,
-            manualAccountNumber: true,
-            manualAccountName: true,
-            manualQrCode: true,
+            email: true,
+            profile: {
+              select: {
+                name: true,
+                companyName: true,
+                companyEmail: true,
+                companyPhone: true,
+                address: true,
+                manualBankName: true,
+                manualAccountNumber: true,
+                manualAccountName: true,
+                manualQrCode: true,
+              }
+            },
             paymentProviders: {
               where: { isActive: true, isPreferred: true },
               select: {
@@ -28,6 +53,7 @@ async function invoiceRoutes(fastify, opts) {
         },
       },
     });
+
     if (!invoice) {
       return reply.notFound("Invoice not found");
     }
@@ -47,8 +73,16 @@ async function invoiceRoutes(fastify, opts) {
       });
     }
 
+    // Flatten user profile for output
+    const { user, ...invoiceData } = invoice;
+    const { profile, ...userData } = user;
+
     return {
-      ...invoice,
+      ...invoiceData,
+      user: {
+        ...userData,
+        ...(profile || {}),
+      },
       system: systemConfig
     };
   });
@@ -143,9 +177,13 @@ async function invoiceRoutes(fastify, opts) {
       // 1. Get the user's custom prefix
       const user = await prisma.user.findUnique({
         where: { id: request.user.id },
-        select: { invoicePrefix: true },
+        select: {
+          profile: {
+            select: { invoicePrefix: true },
+          },
+        },
       });
-      const prefix = user?.invoicePrefix || "INV";
+      const prefix = user?.profile?.invoicePrefix || "INV";
 
       // 2. Find the highest userInvoiceNumber for this user
       const lastInvoice = await prisma.invoice.findFirst({

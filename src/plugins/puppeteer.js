@@ -13,11 +13,16 @@ async function puppeteerPlugin(fastify, opts) {
     }
 
     const page = await browser.newPage();
+    // Set viewport to standard A4 (at 96 DPI)
+    await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 1 });
     try {
       await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
 
       // Wait for the invoice content to be rendered
-      await page.waitForSelector("#invoice-content", { visible: true, timeout: 5000 });
+      await page.waitForSelector("#invoice-content", {
+        visible: true,
+        timeout: 5000,
+      });
 
       // Wait a tiny bit more for fonts/animations to settle
       await new Promise((r) => setTimeout(r, 200));

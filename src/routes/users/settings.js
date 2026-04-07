@@ -9,32 +9,12 @@ async function settingsRoutes(fastify, opts) {
     const user = await prisma.user.findUnique({
       where: { id: request.user.id },
       select: {
-        companyName: true,
-        companyEmail: true,
-        companyPhone: true,
-        address: true,
-        defaultTaxRate: true,
-        reminderInterval: true,
-        invoiceIncludeName: true,
-        invoiceIncludeEmail: true,
-        invoiceIncludePersonalPhone: true,
-        invoiceIncludeCompanyPhone: true,
-        invoiceIncludeCompanyName: true,
-        invoiceIncludeAddress: true,
-        globalAutoChaser: true,
-        invoicePrefix: true,
         waSendsUsed: true,
         emailSendsUsed: true,
         waRemindersUsed: true,
         emailRemindersUsed: true,
         aiUsed: true,
-        whatsappSendTemplate: true,
-        whatsappReminderTemplate: true,
-        whatsappMode: true,
-        twilioSid: true,
-        twilioAuthToken: true,
-        twilioPhoneNumber: true,
-        whatsappReminderInterval: true,
+        profile: true,
       },
     });
 
@@ -42,7 +22,10 @@ async function settingsRoutes(fastify, opts) {
       return reply.notFound("User not found");
     }
 
-    return user;
+    return {
+      ...user,
+      ...(user.profile || {}),
+    };
   });
 
   // PUT update user settings profile
@@ -91,36 +74,73 @@ async function settingsRoutes(fastify, opts) {
     const updatedUser = await prisma.user.update({
       where: { id: request.user.id },
       data: {
-        companyName: data.companyName,
-        companyEmail: data.companyEmail,
-        companyPhone: data.companyPhone,
-        address: data.address,
-        defaultTaxRate: data.defaultTaxRate,
-        reminderInterval: data.reminderInterval,
-        invoiceIncludeName: data.invoiceIncludeName,
-        invoiceIncludeEmail: data.invoiceIncludeEmail,
-        invoiceIncludePersonalPhone: data.invoiceIncludePersonalPhone,
-        invoiceIncludeCompanyPhone: data.invoiceIncludeCompanyPhone,
-        invoiceIncludeCompanyName: data.invoiceIncludeCompanyName,
-        invoiceIncludeAddress: data.invoiceIncludeAddress,
-        globalAutoChaser: data.globalAutoChaser,
-        invoicePrefix: data.invoicePrefix,
-        whatsappSendTemplate: data.whatsappSendTemplate,
-        whatsappReminderTemplate: data.whatsappReminderTemplate,
-        whatsappMode: data.whatsappMode,
-        twilioSid: data.twilioSid,
-        twilioAuthToken: data.twilioAuthToken,
-        twilioPhoneNumber: data.twilioPhoneNumber,
-        whatsappReminderInterval: data.whatsappReminderInterval
-          ? parseInt(data.whatsappReminderInterval)
-          : undefined,
+        profile: {
+          upsert: {
+            create: {
+              companyName: data.companyName,
+              companyEmail: data.companyEmail,
+              companyPhone: data.companyPhone,
+              address: data.address,
+              defaultTaxRate: data.defaultTaxRate,
+              reminderInterval: data.reminderInterval,
+              invoiceIncludeName: data.invoiceIncludeName,
+              invoiceIncludeEmail: data.invoiceIncludeEmail,
+              invoiceIncludePersonalPhone: data.invoiceIncludePersonalPhone,
+              invoiceIncludeCompanyPhone: data.invoiceIncludeCompanyPhone,
+              invoiceIncludeCompanyName: data.invoiceIncludeCompanyName,
+              invoiceIncludeAddress: data.invoiceIncludeAddress,
+              globalAutoChaser: data.globalAutoChaser,
+              invoicePrefix: data.invoicePrefix,
+              whatsappSendTemplate: data.whatsappSendTemplate,
+              whatsappReminderTemplate: data.whatsappReminderTemplate,
+              whatsappMode: data.whatsappMode,
+              twilioSid: data.twilioSid,
+              twilioAuthToken: data.twilioAuthToken,
+              twilioPhoneNumber: data.twilioPhoneNumber,
+              whatsappReminderInterval: data.whatsappReminderInterval
+                ? parseInt(data.whatsappReminderInterval)
+                : undefined,
+            },
+            update: {
+              companyName: data.companyName,
+              companyEmail: data.companyEmail,
+              companyPhone: data.companyPhone,
+              address: data.address,
+              defaultTaxRate: data.defaultTaxRate,
+              reminderInterval: data.reminderInterval,
+              invoiceIncludeName: data.invoiceIncludeName,
+              invoiceIncludeEmail: data.invoiceIncludeEmail,
+              invoiceIncludePersonalPhone: data.invoiceIncludePersonalPhone,
+              invoiceIncludeCompanyPhone: data.invoiceIncludeCompanyPhone,
+              invoiceIncludeCompanyName: data.invoiceIncludeCompanyName,
+              invoiceIncludeAddress: data.invoiceIncludeAddress,
+              globalAutoChaser: data.globalAutoChaser,
+              invoicePrefix: data.invoicePrefix,
+              whatsappSendTemplate: data.whatsappSendTemplate,
+              whatsappReminderTemplate: data.whatsappReminderTemplate,
+              whatsappMode: data.whatsappMode,
+              twilioSid: data.twilioSid,
+              twilioAuthToken: data.twilioAuthToken,
+              twilioPhoneNumber: data.twilioPhoneNumber,
+              whatsappReminderInterval: data.whatsappReminderInterval
+                ? parseInt(data.whatsappReminderInterval)
+                : undefined,
+            },
+          },
+        },
       },
+      include: { profile: true },
     });
+
+    const { profile, ...userData } = updatedUser;
 
     return {
       success: true,
       message: "Settings updated successfully",
-      user: updatedUser,
+      user: {
+        ...userData,
+        ...(profile || {}),
+      },
     };
   });
 }

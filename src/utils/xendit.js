@@ -69,10 +69,10 @@ async function createRecurringPlan(
         reference_id: `cust_${user.id}_${Date.now()}`,
         type: "INDIVIDUAL",
         individual_detail: {
-          given_names: user.name || "User",
+          given_names: user.profile?.name || user.name || "User",
         },
         email: user.email,
-        mobile_number: user.companyPhone || user.phoneNumber || undefined,
+        mobile_number: user.profile?.companyPhone || user.profile?.phoneNumber || user.phoneNumber || undefined,
       },
       {
         headers: {
