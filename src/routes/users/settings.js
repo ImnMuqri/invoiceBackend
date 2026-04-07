@@ -49,6 +49,27 @@ async function settingsRoutes(fastify, opts) {
   fastify.put("/profile", async (request, reply) => {
     const data = request.body;
 
+    // Fetch the current user to compare values and check plan
+    const user = await prisma.user.findUnique({
+      where: { id: request.user.id },
+      select: {
+        plan: true,
+        reminderInterval: true,
+        globalAutoChaser: true,
+        whatsappSendTemplate: true,
+        whatsappReminderTemplate: true,
+        whatsappMode: true,
+        twilioSid: true,
+        twilioAuthToken: true,
+        twilioPhoneNumber: true,
+        whatsappReminderInterval: true,
+      },
+    });
+
+    if (!user) {
+      return reply.notFound("User not found");
+    }
+
     // Check if user is FREE before allowing WhatsApp settings updates
     const whatsappFields = [
       "whatsappSendTemplate",
@@ -61,30 +82,34 @@ async function settingsRoutes(fastify, opts) {
     ];
 
     const isUpdatingWhatsapp = whatsappFields.some(
-      (field) => data[field] !== undefined,
+      (field) => data[field] !== undefined && data[field] !== user[field],
     );
 
     const isUpdatingReminders =
-      (data.reminderInterval !== undefined && data.reminderInterval !== 0) ||
-      data.globalAutoChaser === true;
+      (data.reminderInterval !== undefined &&
+        data.reminderInterval !== user.reminderInterval) ||
+      (data.globalAutoChaser !== undefined &&
+        data.globalAutoChaser !== user.globalAutoChaser);
 
-    if (isUpdatingWhatsapp || isUpdatingReminders) {
-      const user = await prisma.user.findUnique({
-        where: { id: request.user.id },
-        select: { plan: true },
-      });
+    const isProTier = ["PRO", "MAX"].includes(user.plan);
 
-      if (user.plan === "FREE") {
-        if (isUpdatingWhatsapp) {
-          return reply.forbidden(
-            "Upgrade to Pro to configure WhatsApp settings",
-          );
-        }
-        if (isUpdatingReminders) {
-          return reply.forbidden(
-            "Upgrade to Pro to enable automated reminders",
-          );
-        }
+    if (!isProTier) {
+      // Block enabling Global Automation (Chaser)
+      if (data.globalAutoChaser === true && !user.globalAutoChaser) {
+        return reply.forbidden("Upgrade to Pro to enable Global Automation");
+      }
+      // Block setting non-zero reminder intervals (Email or WhatsApp)
+      if (
+        (data.reminderInterval && data.reminderInterval !== 0) ||
+        (data.whatsappReminderInterval && data.whatsappReminderInterval !== 0)
+      ) {
+        return reply.forbidden("Upgrade to Pro to enable automated reminders");
+      }
+    }
+
+    if (user.plan === "FREE") {
+      if (isUpdatingWhatsapp) {
+        return reply.forbidden("Upgrade to Pro to configure WhatsApp settings");
       }
     }
 
