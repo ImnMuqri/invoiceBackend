@@ -4,8 +4,8 @@ async function userRoutes(fastify, opts) {
   // Apply authentication to all routes in this plugin
   fastify.addHook("onRequest", fastify.authenticate);
 
-  // GET current user (me)
-  fastify.get("/me", async (request, reply) => {
+  // GET current user profile
+  fastify.get("/profile", async (request, reply) => {
     const { profile, ...userData } = await prisma.user.findUnique({
       where: { id: request.user.id },
       select: {
@@ -46,7 +46,7 @@ async function userRoutes(fastify, opts) {
   });
 
   // PUT update profile
-  fastify.put("/me", async (request, reply) => {
+  fastify.put("/profile", async (request, reply) => {
     const data = request.body;
 
     const { profile, ...userData } = await prisma.user.update({
