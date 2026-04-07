@@ -151,55 +151,32 @@ async function paymentRoutes(fastify, opts) {
     const user = await prisma.user.findUnique({
       where: { id: request.user.id },
       select: {
-        profile: {
-          select: {
-            manualBankName: true,
-            manualAccountNumber: true,
-            manualAccountName: true,
-            manualQrCode: true,
-          },
-        },
+        manualBankName: true,
+        manualAccountNumber: true,
+        manualAccountName: true,
+        manualQrCode: true,
       },
     });
-    return user?.profile || {};
+    return user;
   });
 
   // PUT update manual payment settings
   fastify.put("/manual", async (request, reply) => {
     const data = request.body;
-    const { profile } = await prisma.user.update({
+    const updated = await prisma.user.update({
       where: { id: request.user.id },
       data: {
-        profile: {
-          upsert: {
-            create: {
-              manualBankName: data.manualBankName,
-              manualAccountNumber: data.manualAccountNumber,
-              manualAccountName: data.manualAccountName,
-              manualQrCode: data.manualQrCode,
-            },
-            update: {
-              manualBankName: data.manualBankName,
-              manualAccountNumber: data.manualAccountNumber,
-              manualAccountName: data.manualAccountName,
-              manualQrCode: data.manualQrCode,
-            },
-          },
-        },
-      },
-      select: {
-        profile: {
-          select: {
-            manualBankName: true,
-            manualAccountNumber: true,
-            manualAccountName: true,
-            manualQrCode: true,
-          },
-        },
+        manualBankName: data.manualBankName,
+        manualAccountNumber: data.manualAccountNumber,
+        manualAccountName: data.manualAccountName,
+        manualQrCode: data.manualQrCode,
       },
     });
     return {
-      ...(profile || {}),
+      manualBankName: updated.manualBankName,
+      manualAccountNumber: updated.manualAccountNumber,
+      manualAccountName: updated.manualAccountName,
+      manualQrCode: updated.manualQrCode,
       message: "Manual payment settings updated successfully",
     };
   });

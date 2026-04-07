@@ -16,13 +16,32 @@ model User {
   id                        Int      @id @default(autoincrement())
   email                     String   @unique
   password                  String
+  name                      String?
+  phoneNumber               String?
   heardAbout                String?
   currentStatus             String?
   onboardingCompleted       Boolean  @default(false)
+  companyName               String?
+  companyEmail              String?
+  address                   String?
+  defaultCurrency           String   @default("MYR")
+  companyPhone              String?
+  reminderInterval          Int      @default(0)
+  whatsappReminderInterval  Int      @default(0)
+  whatsappSendTemplate      String?  @default("{{userName}} {{companyName}} via InvoKita\n\nHello {{clientName}}, here is your invoice {{invoiceNumber}} for {{totalAmount}} {{currency}}. Due on {{dueDate}}. View here: {{invoiceUrl}}")
+  whatsappReminderTemplate  String?  @default("{{userName}} {{companyName}} via InvoKita\n\nFriendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. Please ignore if already paid.")
+  whatsappMode              String   @default("SYSTEM")
+  twilioSid                 String?
+  twilioAuthToken           String?
+  twilioPhoneNumber         String?
   xenditCustomerId          String?
   xenditSubscriptionId      String?
   plan                      String   @default("FREE")
   role                      Role     @default(USER)
+  manualBankName            String?
+  manualAccountNumber       String?
+  manualAccountName         String?
+  manualQrCode              String?
   isActive                  Boolean  @default(true)
   waSendsUsed               Int      @default(0)
   emailSendsUsed            Int      @default(0)
@@ -39,9 +58,17 @@ model User {
   referrals                 User[]   @relation("UserReferrals")
   aiInsights               String?
   lastAiInsightAt          DateTime?
+  invoiceIncludeName          Boolean  @default(true)
+  invoiceIncludeEmail         Boolean  @default(false)
+  invoiceIncludePersonalPhone Boolean  @default(false)
+  invoiceIncludeCompanyPhone  Boolean  @default(true)
+  invoiceIncludeCompanyName    Boolean  @default(true)
+  invoiceIncludeAddress       Boolean  @default(true)
+  defaultTaxRate               Float    @default(0.0)
+  globalAutoChaser            Boolean  @default(true)
+  invoicePrefix               String   @default("INV")
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
-  profile                   Profile?
   clients                   Client[]
   invoices                  Invoice[]
   paymentProviders          PaymentProvider[]
@@ -185,51 +212,4 @@ model SystemConfiguration {
   globalNotice           String?
   maintenanceMode        Boolean  @default(false)
   updatedAt              DateTime @updatedAt
-}
-model Profile {
-  id                        Int      @id @default(autoincrement())
-  userId                    Int      @unique
-  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  name                      String?
-  phoneNumber               String?
-  companyName               String?
-  companyEmail              String?
-  companyPhone              String?
-  address                   String?
-  
-  // Invoice Display Flags
-  invoiceIncludeName          Boolean  @default(true)
-  invoiceIncludeEmail         Boolean  @default(false)
-  invoiceIncludePersonalPhone Boolean  @default(false)
-  invoiceIncludeCompanyPhone  Boolean  @default(true)
-  invoiceIncludeCompanyName    Boolean  @default(true)
-  invoiceIncludeAddress       Boolean  @default(true)
-  
-  // Invoice Settings
-  defaultCurrency           String   @default("MYR")
-  defaultTaxRate               Float    @default(0.0)
-  invoicePrefix               String   @default("INV")
-  globalAutoChaser            Boolean  @default(true)
-  
-  // Communication Settings
-  reminderInterval          Int      @default(0)
-  whatsappReminderInterval  Int      @default(0)
-  whatsappSendTemplate      String?  @default("{{userName}} {{companyName}} via InvoKita\n\nHello {{clientName}}, here is your invoice {{invoiceNumber}} for {{totalAmount}} {{currency}}. Due on {{dueDate}}. View here: {{invoiceUrl}}")
-  whatsappReminderTemplate  String?  @default("{{userName}} {{companyName}} via InvoKita\n\nFriendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. Please ignore if already paid.")
-  whatsappMode              String   @default("SYSTEM")
-  
-  // Twilio Settings
-  twilioSid                 String?
-  twilioAuthToken           String?
-  twilioPhoneNumber         String?
-  
-  // Manual Payment Details
-  manualBankName            String?
-  manualAccountNumber       String?
-  manualAccountName         String?
-  manualQrCode              String?
-
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
 }

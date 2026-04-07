@@ -4,23 +4,25 @@ async function userRoutes(fastify, opts) {
   // Apply authentication to all routes in this plugin
   fastify.addHook("onRequest", fastify.authenticate);
 
-  // GET current user profile
-  fastify.get("/profile", async (request, reply) => {
-    const { profile, ...userData } = await prisma.user.findUnique({
+  // GET current user (me)
+  fastify.get("/me", async (request, reply) => {
+    const user = await prisma.user.findUnique({
       where: { id: request.user.id },
       select: {
         id: true,
         email: true,
+        name: true,
+        phoneNumber: true,
         heardAbout: true,
         currentStatus: true,
         onboardingCompleted: true,
+        defaultCurrency: true,
         plan: true,
         role: true,
         referralCode: true,
         referralCredits: true,
         lastResetDate: true,
         createdAt: true,
-        profile: true,
         subscriptions: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -35,64 +37,46 @@ async function userRoutes(fastify, opts) {
       },
     });
 
-    if (!userData) {
+    if (!user) {
       return reply.notFound("User not found");
     }
 
-    return {
-      ...userData,
-      ...(profile || {}),
-    };
+    return user;
   });
 
   // PUT update profile
-  fastify.put("/profile", async (request, reply) => {
+  fastify.put("/me", async (request, reply) => {
     const data = request.body;
 
-    const { profile, ...userData } = await prisma.user.update({
+    const updatedUser = await prisma.user.update({
       where: { id: request.user.id },
       data: {
+        name: data.name,
+        phoneNumber: data.phoneNumber,
         heardAbout: data.heardAbout,
         currentStatus: data.currentStatus,
         onboardingCompleted: data.onboardingCompleted,
-        profile: {
-          upsert: {
-            create: {
-              name: data.name,
-              phoneNumber: data.phoneNumber,
-              defaultCurrency: data.defaultCurrency,
-              companyName: data.companyName,
-              companyEmail: data.companyEmail,
-              companyPhone: data.companyPhone,
-              address: data.address,
-            },
-            update: {
-              name: data.name,
-              phoneNumber: data.phoneNumber,
-              defaultCurrency: data.defaultCurrency,
-              companyName: data.companyName,
-              companyEmail: data.companyEmail,
-              companyPhone: data.companyPhone,
-              address: data.address,
-            },
-          },
-        },
+        defaultCurrency: data.defaultCurrency,
+        companyName: data.companyName,
+        companyEmail: data.companyEmail,
+        companyPhone: data.companyPhone,
       },
       select: {
         id: true,
+        name: true,
+        phoneNumber: true,
         heardAbout: true,
         currentStatus: true,
         onboardingCompleted: true,
+        defaultCurrency: true,
+        companyName: true,
+        companyEmail: true,
+        companyPhone: true,
         plan: true,
-        role: true,
-        profile: true,
       },
     });
 
-    return {
-      ...userData,
-      ...(profile || {}),
-    };
+    return updatedUser;
   });
 
   // POST subscribe to a plan
