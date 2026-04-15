@@ -3,7 +3,9 @@ async function userRoutes(fastify, opts) {
 
   fastify.addHook("onRequest", fastify.authenticate);
 
-  // GET current user (me) — flat response shape, unchanged from before
+  // GET current user (me) — lean session endpoint
+  // Only returns what's needed for: auth guards, navbar, dashboard quota bars, referral sidebar
+  // Invoice config fields (invoiceInclude*, prefix, taxRate) are fetched separately via /settings/profile
   fastify.get("/me", async (request, reply) => {
     const user = await prisma.user.findUnique({
       where: { id: request.user.id },
@@ -15,11 +17,29 @@ async function userRoutes(fastify, opts) {
         onboardingCompleted: true,
         referralCode: true,
         referralCredits: true,
-        createdAt: true,
-        // Sub-models
-        profile: true,
-        quota: true,
-        invoiceConfig: true,
+        // Sub-models — only what's needed globally
+        profile: {
+          select: {
+            name: true,
+            defaultCurrency: true,
+            // Needed by invoice create/edit to pre-fill "From" section
+            phoneNumber: true,
+            companyName: true,
+            companyEmail: true,
+            companyPhone: true,
+            address: true,
+          },
+        },
+        quota: {
+          select: {
+            waSendsUsed: true,
+            emailSendsUsed: true,
+            waRemindersUsed: true,
+            emailRemindersUsed: true,
+            aiUsed: true,
+            invoicesUsed: true,
+          },
+        },
         subscriptions: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -36,37 +56,24 @@ async function userRoutes(fastify, opts) {
 
     if (!user) return reply.notFound("User not found");
 
-    // Flatten response so frontend authStore.user.companyName etc. still work
-    const { profile, quota, invoiceConfig, ...core } = user;
+    const { profile, quota, ...core } = user;
     return {
       ...core,
-      // Profile fields
+      // Profile essentials
       name: profile?.name,
+      defaultCurrency: profile?.defaultCurrency ?? "MYR",
       phoneNumber: profile?.phoneNumber,
-      heardAbout: profile?.heardAbout,
-      currentStatus: profile?.currentStatus,
       companyName: profile?.companyName,
       companyEmail: profile?.companyEmail,
       companyPhone: profile?.companyPhone,
       address: profile?.address,
-      defaultCurrency: profile?.defaultCurrency ?? "MYR",
-      // Quota fields
+      // Quota counters (dashboard bars)
       waSendsUsed: quota?.waSendsUsed ?? 0,
       emailSendsUsed: quota?.emailSendsUsed ?? 0,
       waRemindersUsed: quota?.waRemindersUsed ?? 0,
       emailRemindersUsed: quota?.emailRemindersUsed ?? 0,
       aiUsed: quota?.aiUsed ?? 0,
       invoicesUsed: quota?.invoicesUsed ?? 0,
-      lastResetDate: quota?.lastResetDate,
-      // Invoice config fields
-      invoicePrefix: invoiceConfig?.invoicePrefix ?? "INV",
-      defaultTaxRate: invoiceConfig?.defaultTaxRate ?? 0,
-      invoiceIncludeName: invoiceConfig?.invoiceIncludeName ?? true,
-      invoiceIncludeEmail: invoiceConfig?.invoiceIncludeEmail ?? false,
-      invoiceIncludePersonalPhone: invoiceConfig?.invoiceIncludePersonalPhone ?? false,
-      invoiceIncludeCompanyPhone: invoiceConfig?.invoiceIncludeCompanyPhone ?? true,
-      invoiceIncludeCompanyName: invoiceConfig?.invoiceIncludeCompanyName ?? true,
-      invoiceIncludeAddress: invoiceConfig?.invoiceIncludeAddress ?? true,
     };
   });
 
