@@ -12,15 +12,16 @@ const getAuthToken = () => {
 async function createRecurringPlan(
   user,
   planName,
+  basePrice,
   discount = null,
   successUrl = null,
   failureUrl = null,
 ) {
   // Determine pricing based on plan
-  let amount = 0;
-  if (planName === "PRO") amount = 59;
-  else if (planName === "MAX") amount = 99;
-  else throw new Error("Invalid plan for subscription");
+  let amount = basePrice;
+  if (amount === undefined || amount === null) {
+    throw new Error("Missing price for this subscription plan");
+  }
 
   // Apply discount if present
   if (discount) {

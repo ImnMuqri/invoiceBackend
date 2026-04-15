@@ -156,14 +156,24 @@ async function userRoutes(fastify, opts) {
   // POST subscribe to a plan
   fastify.post("/subscribe", async (request, reply) => {
     const { plan, promoCode } = request.body;
-    if (!["FREE", "PRO", "MAX"].includes(plan)) {
-      return reply.badRequest("Invalid plan");
+
+    const planData = await prisma.plan.findFirst({
+      where: { name: { equals: plan, mode: "insensitive" }, isActive: true },
+    });
+
+    if (plan.toUpperCase() !== "FREE" && !planData) {
+      if (!["PRO", "MAX"].includes(plan.toUpperCase())) {
+        return reply.badRequest("Invalid plan");
+      }
     }
+
+    const resolvedPlanName = planData ? planData.name : plan.toUpperCase();
+    const resolvedPlanPrice = planData ? planData.price : (resolvedPlanName === "PRO" ? 59 : 99);
 
     const { createRecurringPlan, cancelRecurringPlan } = require("../../utils/xendit");
     const user = await prisma.user.findUnique({ where: { id: request.user.id } });
 
-    if (plan === "FREE") {
+    if (resolvedPlanName === "FREE") {
       const activeSub = await prisma.subscription.findFirst({
         where: { userId: user.id, status: "ACTIVE" },
       });
@@ -187,8 +197,8 @@ async function userRoutes(fastify, opts) {
     });
 
     if (activeSub) {
-      if (activeSub.plan === plan) {
-        return reply.badRequest(`You already have an active ${plan} subscription.`);
+      if (activeSub.plan.toUpperCase() === resolvedPlanName.toUpperCase()) {
+        return reply.badRequest(`You already have an active ${resolvedPlanName} subscription.`);
       }
       if (activeSub.xenditSubscriptionId) {
         await cancelRecurringPlan(activeSub.xenditSubscriptionId);
@@ -200,7 +210,7 @@ async function userRoutes(fastify, opts) {
     }
 
     await prisma.subscription.deleteMany({
-      where: { userId: user.id, status: "PENDING", plan: plan },
+      where: { userId: user.id, status: "PENDING", plan: resolvedPlanName },
     });
 
     try {
@@ -227,7 +237,8 @@ async function userRoutes(fastify, opts) {
 
       const { plan: xenditPlan, customerId } = await createRecurringPlan(
         user,
-        plan,
+        resolvedPlanName,
+        resolvedPlanPrice,
         discount,
         request.body.successUrl,
         request.body.failureUrl,
@@ -247,7 +258,7 @@ async function userRoutes(fastify, opts) {
         return reply.internalServerError("Could not generate Xendit checkout URL");
       }
 
-      return { plan, checkoutUrl, message: "Redirecting to payment Gateway..." };
+      return { plan: resolvedPlanName, checkoutUrl, message: "Redirecting to payment Gateway..." };
     } catch (err) {
       request.log.error(err);
       return reply.internalServerError(
