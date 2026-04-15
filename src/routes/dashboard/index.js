@@ -9,13 +9,23 @@ async function dashboardRoutes(fastify, opts) {
     try {
       const now = new Date();
 
-      // Get user's default currency and plan from sub-models
+      // Get user's default currency, plan, and current quota usage
       const user = await prisma.user.findUnique({
         where: { id: request.user.id },
         select: {
           plan: true,
           profile: { select: { defaultCurrency: true } },
           notification: { select: { aiInsights: true, lastAiInsightAt: true } },
+          quota: {
+            select: {
+              invoicesUsed: true,
+              waSendsUsed: true,
+              emailSendsUsed: true,
+              waRemindersUsed: true,
+              emailRemindersUsed: true,
+              aiUsed: true,
+            },
+          },
         },
       });
       const targetCurrency = user.profile?.defaultCurrency || "MYR";
@@ -217,6 +227,15 @@ async function dashboardRoutes(fastify, opts) {
         recentInvoices,
         topClients,
         usageLimits: planLimits[plan] || planLimits.FREE || {},
+        // Current quota usage — avoids a separate /me call on dashboard load
+        quotaUsage: {
+          invoicesUsed: user.quota?.invoicesUsed ?? 0,
+          waSendsUsed: user.quota?.waSendsUsed ?? 0,
+          emailSendsUsed: user.quota?.emailSendsUsed ?? 0,
+          waRemindersUsed: user.quota?.waRemindersUsed ?? 0,
+          emailRemindersUsed: user.quota?.emailRemindersUsed ?? 0,
+          aiUsed: user.quota?.aiUsed ?? 0,
+        },
         system: systemConfig,
         insights,
       };
