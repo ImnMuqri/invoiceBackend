@@ -76,17 +76,22 @@ async function invoiceRoutes(fastify, opts) {
 
     if (!invoice) return reply.notFound("Invoice not found");
 
-    // Public URL for PDF generation (Using more professional export layout)
+    const { type } = request.query; // 'receipt' or null (invoice)
+    const isReceipt = type === "receipt";
+
+    // Public URL for PDF generation
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const publicUrl = `${frontendUrl}/invoices/${id}/export`;
+    const publicUrl = `${frontendUrl}/invoices/${id}/export${isReceipt ? "?type=receipt" : ""}`;
 
     try {
       const pdfBuffer = await fastify.generatePDF(publicUrl);
+      const filename = isReceipt ? `Receipt-${invoice.invoiceNumber}.pdf` : `Invoice-${invoice.invoiceNumber}.pdf`;
+      
       reply
         .header("Content-Type", "application/pdf")
         .header(
           "Content-Disposition",
-          `attachment; filename=Invoice-${invoice.invoiceNumber}.pdf`,
+          `attachment; filename=${filename}`,
         )
         .send(pdfBuffer);
     } catch (err) {
