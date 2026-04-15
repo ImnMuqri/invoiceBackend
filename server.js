@@ -67,6 +67,16 @@ async function build() {
   await fastify.register(require("./src/plugins/usage"));
   await fastify.register(require("./src/plugins/cron"));
 
+  // Parse application/x-www-form-urlencoded natively for Payment Webhooks (like ToyyibPay)
+  fastify.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, function (req, body, done) {
+    try {
+      const parsed = Object.fromEntries(new URLSearchParams(body));
+      done(null, parsed);
+    } catch (err) {
+      done(err, undefined);
+    }
+  });
+
   // Autoload routes
   await fastify.register(autoload, {
     dir: path.join(__dirname, "src/routes"),

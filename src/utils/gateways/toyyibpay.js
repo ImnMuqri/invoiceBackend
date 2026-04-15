@@ -20,7 +20,7 @@ class ToyyibPay {
     params.append("userSecretKey", this.secretKey);
     params.append("categoryCode", this.categoryCode);
     params.append("billName", data.billName);
-    params.append("billDescription", data.billDescription);
+    params.append("billDescription", (data.billDescription || "").substring(0, 100));
     params.append("billPriceSetting", 1); // Fixed price
     params.append("billPayorInfo", 1); // Show payor info
     params.append("billAmount", Math.round(data.amount * 100)); // In cents
