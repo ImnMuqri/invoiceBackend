@@ -8,7 +8,9 @@ class Billplz {
     this.apiKey = apiKey;
     this.collectionId = collectionId;
     this.xSignatureKey = xSignatureKey;
-    this.baseUrl = "https://www.billplz.com/api/v3";
+    this.baseUrl = process.env.BILLPLZ_SANDBOX === "true"
+      ? "https://www.billplz-sandbox.com/api/v3"
+      : "https://www.billplz.com/api/v3";
   }
 
   /**

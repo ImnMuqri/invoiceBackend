@@ -7,7 +7,9 @@ class ToyyibPay {
   constructor(secretKey, categoryCode) {
     this.secretKey = secretKey;
     this.categoryCode = categoryCode;
-    this.baseUrl = "https://toyyibpay.com";
+    this.baseUrl = process.env.TOYYIBPAY_SANDBOX === "true"
+      ? "https://dev.toyyibpay.com"
+      : "https://toyyibpay.com";
   }
 
   /**
