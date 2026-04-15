@@ -156,36 +156,61 @@ async function payRoutes(fastify, opts) {
     if (!invoice) return reply.notFound("Invoice not found");
     if (invoice.status === "Paid") return { status: "Paid" };
 
-    const provider = invoice.user.paymentProviders[0];
-    
-    // Explicit Fallback Check for ToyyibPay
-    if (provider && provider.provider === "TOYYIBPAY" && billcode) {
-      try {
-        const axios = require("axios");
-        const baseUrl = process.env.TOYYIBPAY_SANDBOX === "true" ? "https://dev.toyyibpay.com" : "https://toyyibpay.com";
-        const form = new URLSearchParams();
-        form.append("billCode", billcode);
-        
-        const response = await axios.post(`${baseUrl}/index.php/api/getBillTransactions`, form);
+    const billplzId = request.query["billplz[id]"];
+    const toyyibpayCode = request.query.billcode;
 
-        if (Array.isArray(response.data) && response.data.length > 0) {
-          const isPaid = response.data.some((txn) => String(txn.billpaymentStatus) === "1");
-          if (isPaid) {
-            await markInvoiceAsPaid(prisma, parseInt(id));
-            fastify.log.info({ invoiceId: invoice.id }, "Invoice marked as PAID via Explicit Frontend Verification (ToyyibPay)");
-            return { status: "Paid" };
+    // Explicit Fallback Check for ToyyibPay
+    if (toyyibpayCode) {
+      const provider = invoice.user.paymentProviders.find(p => p.provider === "TOYYIBPAY");
+      if (provider) {
+        try {
+          const axios = require("axios");
+          const baseUrl = process.env.TOYYIBPAY_SANDBOX === "true" ? "https://dev.toyyibpay.com" : "https://toyyibpay.com";
+          const form = new URLSearchParams();
+          form.append("billCode", toyyibpayCode);
+          
+          const response = await axios.post(`${baseUrl}/index.php/api/getBillTransactions`, form);
+
+          if (Array.isArray(response.data) && response.data.length > 0) {
+            const isPaid = response.data.some((txn) => String(txn.billpaymentStatus) === "1");
+            if (isPaid) {
+              await markInvoiceAsPaid(prisma, parseInt(id));
+              fastify.log.info({ invoiceId: invoice.id, toyyibpayCode }, "Invoice marked as PAID via Explicit Frontend Verification (ToyyibPay)");
+              return { status: "Paid" };
+            }
           }
+        } catch (err) {
+          fastify.log.error(err, "Explicit Verification Failed for ToyyibPay");
         }
-      } catch (err) {
-        fastify.log.error(err, "Explicit Verification Failed for ToyyibPay");
       }
     }
     
-    // Explicit Fallback Check for Billplz (Can be expanded if needed)
-    if (provider && provider.provider === "BILLPLZ" && request.query["billplz[paid]"] === "true") {
-       // Without X-Signature verification we should be careful, but since it's a fallback:
-       // For ultimate security, they rely on the webhook.
-       return { status: "Pending" }; 
+    // Explicit Fallback Check for Billplz
+    if (billplzId) {
+      const provider = invoice.user.paymentProviders.find(p => p.provider === "BILLPLZ");
+      if (provider) {
+        try {
+          const xSignatureKey = decrypt(provider.xSignatureKey);
+          const bp = new Billplz(
+            decrypt(provider.apiKey),
+            provider.collectionId,
+            xSignatureKey,
+          );
+          
+          const bill = await bp.getBill(billplzId);
+          
+          // bill.paid can be boolean or "true" string depending on API version
+          if (bill && (bill.paid === true || String(bill.paid) === "true")) {
+            await markInvoiceAsPaid(prisma, parseInt(id));
+            fastify.log.info({ invoiceId: invoice.id, billplzId }, "Invoice marked as PAID via Explicit Frontend Verification (Billplz)");
+            return { status: "Paid" };
+          } else {
+            fastify.log.warn({ invoiceId: invoice.id, billplzId, billStatus: bill?.state, billPaid: bill?.paid }, "Billplz check: Not paid yet or unexpected response structure");
+          }
+        } catch (err) {
+          fastify.log.error(err, "Explicit Verification Failed for Billplz");
+        }
+      }
     }
 
     return { status: invoice.status };

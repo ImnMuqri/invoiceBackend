@@ -51,6 +51,24 @@ class Billplz {
       throw err;
     }
   }
+  /**
+   * Get bill details from Billplz
+   */
+  async getBill(billId) {
+    const auth = Buffer.from(`${this.apiKey}:`).toString("base64");
+    
+    try {
+      const response = await axios.get(`${this.baseUrl}/bills/${billId}`, {
+        headers: {
+          Authorization: `Basic ${auth}`
+        }
+      });
+      return response.data;
+    } catch (err) {
+      console.error("Billplz Get Bill failed:", err.message);
+      throw err;
+    }
+  }
 }
 
 module.exports = Billplz;
