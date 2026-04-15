@@ -11,11 +11,30 @@ async function payRoutes(fastify, opts) {
     const { id } = request.params;
     const invoice = await prisma.invoice.findUnique({
       where: { id: parseInt(id) },
-      include: {
-        client: true,
+      select: {
+        id: true,
+        invoiceNumber: true,
+        invoiceName: true,
+        subject: true,
+        status: true,
+        amount: true,
+        currency: true,
+        date: true,
+        dueDate: true,
+        template: true,
+        fromName: true,
+        fromEmail: true,
+        fromCompanyName: true,
+        fromAddress: true,
+        items: {
+          select: { id: true, name: true, quantity: true, price: true, total: true },
+        },
+        client: {
+          select: { name: true, email: true, company: true, address: true },
+        },
         user: {
           select: {
-            companyName: true,
+            plan: true,
             manualPayment: true,
             paymentProviders: {
               where: { isActive: true },
@@ -28,34 +47,22 @@ async function payRoutes(fastify, opts) {
 
     if (!invoice) return reply.notFound("Invoice not found");
 
-    // Flatten manual payment fields for frontend compatibility if they exist
+    // Flatten manual payment fields for frontend compatibility
     if (invoice.user?.manualPayment) {
       const mp = invoice.user.manualPayment;
       invoice.user.manualBankName = mp.bankName;
       invoice.user.manualAccountNumber = mp.accountNumber;
       invoice.user.manualAccountName = mp.accountName;
       invoice.user.manualQrCode = mp.qrCode;
+      delete invoice.user.manualPayment;
     }
 
-    // Fetch global system configuration for public toggles
-    let systemConfig = await prisma.systemConfiguration.findFirst();
-    if (!systemConfig) {
-      systemConfig = await prisma.systemConfiguration.create({
-        data: {
-          whatsappEnabled: true,
-          emailEnabled: true,
-          invoiceCreationEnabled: true,
-          paymentsEnabled: true,
-          globalNotice: null,
-          maintenanceMode: false,
-        }
-      });
-    }
+    // Fetch only necessary system toggles
+    const systemConfig = await prisma.systemConfiguration.findFirst({
+      select: { paymentsEnabled: true },
+    }) ?? { paymentsEnabled: true };
 
-    return {
-      ...invoice,
-      system: systemConfig
-    };
+    return { ...invoice, system: systemConfig };
   });
 
   // POST create bill
