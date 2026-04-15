@@ -12,7 +12,7 @@ async function build() {
     origin: [
       "https://invokita.my",
       "http://localhost:3000",
-      "http://127.0.0.1:3000",
+      "https://invokita.pages.dev",
     ],
     methods: ["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS", "HEAD"],
     allowedHeaders: [
