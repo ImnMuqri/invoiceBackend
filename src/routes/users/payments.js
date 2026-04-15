@@ -69,6 +69,15 @@ async function paymentRoutes(fastify, opts) {
     return { message: `${provider} connected successfully`, id: created.id };
   });
 
+  // PATCH set manual as preferred provider (fallback override)
+  fastify.patch("/manual/prefer", async (request, reply) => {
+    await prisma.paymentProvider.updateMany({
+      where: { userId: request.user.id },
+      data: { isPreferred: false },
+    });
+    return { message: "Manual bank transfer set as preferred" };
+  });
+
   // PATCH set preferred provider
   fastify.patch("/:id/prefer", async (request, reply) => {
     const { id } = request.params;
