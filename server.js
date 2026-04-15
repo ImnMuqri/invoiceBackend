@@ -4,15 +4,23 @@ const autoload = require("@fastify/autoload");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 async function build() {
-
   // Register Sensible
   await fastify.register(require("@fastify/sensible"));
 
   // Register CORS
   await fastify.register(require("@fastify/cors"), {
-    origin: ["https://invokita.pages.dev", "http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://127.0.0.1:3000"],
+    origin: [
+      "https://invokita.my",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+    ],
     methods: ["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS", "HEAD"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept",
+    ],
     credentials: true,
     maxAge: 86400,
   });
@@ -46,7 +54,8 @@ async function build() {
         where: { id: decoded.id },
         select: { isActive: true, role: true },
       });
-      if (!user || !user.isActive) return reply.unauthorized("Account disabled");
+      if (!user || !user.isActive)
+        return reply.unauthorized("Account disabled");
       request.user.role = user.role;
     } catch (err) {
       reply.unauthorized();
@@ -68,14 +77,18 @@ async function build() {
   await fastify.register(require("./src/plugins/cron"));
 
   // Parse application/x-www-form-urlencoded natively for Payment Webhooks (like ToyyibPay)
-  fastify.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, function (req, body, done) {
-    try {
-      const parsed = Object.fromEntries(new URLSearchParams(body));
-      done(null, parsed);
-    } catch (err) {
-      done(err, undefined);
-    }
-  });
+  fastify.addContentTypeParser(
+    "application/x-www-form-urlencoded",
+    { parseAs: "string" },
+    function (req, body, done) {
+      try {
+        const parsed = Object.fromEntries(new URLSearchParams(body));
+        done(null, parsed);
+      } catch (err) {
+        done(err, undefined);
+      }
+    },
+  );
 
   // Autoload routes
   await fastify.register(autoload, {
