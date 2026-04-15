@@ -16,9 +16,10 @@ async function payRoutes(fastify, opts) {
         user: {
           select: {
             companyName: true,
+            manualPayment: true,
             paymentProviders: {
               where: { isActive: true },
-              select: { id: true, provider: true },
+              select: { id: true, provider: true, isPreferred: true },
             },
           },
         },
@@ -26,6 +27,15 @@ async function payRoutes(fastify, opts) {
     });
 
     if (!invoice) return reply.notFound("Invoice not found");
+
+    // Flatten manual payment fields for frontend compatibility if they exist
+    if (invoice.user?.manualPayment) {
+      const mp = invoice.user.manualPayment;
+      invoice.user.manualBankName = mp.bankName;
+      invoice.user.manualAccountNumber = mp.accountNumber;
+      invoice.user.manualAccountName = mp.accountName;
+      invoice.user.manualQrCode = mp.qrCode;
+    }
 
     // Fetch global system configuration for public toggles
     let systemConfig = await prisma.systemConfiguration.findFirst();
