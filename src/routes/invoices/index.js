@@ -22,10 +22,11 @@ async function invoiceRoutes(fastify, opts) {
               },
             },
             paymentProviders: {
-              where: { isActive: true, isPreferred: true },
+              where: { isActive: true },
               select: {
                 id: true,
                 provider: true,
+                isPreferred: true,
               },
             },
           },
