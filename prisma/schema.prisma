@@ -12,85 +12,166 @@ enum Role {
   ADMIN
 }
 
+// ─────────────────────────────────────────────
+// Core User — Auth, Plan & Billing Identity
+// ─────────────────────────────────────────────
 model User {
-  id                        Int      @id @default(autoincrement())
-  email                     String   @unique
-  password                  String
-  name                      String?
-  phoneNumber               String?
-  heardAbout                String?
-  currentStatus             String?
-  onboardingCompleted       Boolean  @default(false)
-  companyName               String?
-  companyEmail              String?
-  address                   String?
-  defaultCurrency           String   @default("MYR")
-  companyPhone              String?
-  reminderInterval          Int      @default(0)
-  whatsappReminderInterval  Int      @default(0)
-  whatsappSendTemplate      String?  @default("{{userName}} {{companyName}} via InvoKita\n\nHello {{clientName}}, here is your invoice {{invoiceNumber}} for {{totalAmount}} {{currency}}. Due on {{dueDate}}. View here: {{invoiceUrl}}")
-  whatsappReminderTemplate  String?  @default("{{userName}} {{companyName}} via InvoKita\n\nFriendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. Please ignore if already paid.")
-  whatsappMode              String   @default("SYSTEM")
-  twilioSid                 String?
-  twilioAuthToken           String?
-  twilioPhoneNumber         String?
-  xenditCustomerId          String?
-  xenditSubscriptionId      String?
-  plan                      String   @default("FREE")
-  role                      Role     @default(USER)
-  manualBankName            String?
-  manualAccountNumber       String?
-  manualAccountName         String?
-  manualQrCode              String?
-  isActive                  Boolean  @default(true)
-  waSendsUsed               Int      @default(0)
-  emailSendsUsed            Int      @default(0)
-  waRemindersUsed           Int      @default(0)
-  emailRemindersUsed        Int      @default(0)
-  aiUsed                    Int      @default(0)
-  invoicesUsed              Int      @default(0)
-  lastResetDate             DateTime @default(now())
-  referralCode              String?  @unique
-  referralCredits           Int      @default(0)
-  referralCreditEarned      Boolean  @default(false)
-  referredById              Int?
-  referredBy                User?    @relation("UserReferrals", fields: [referredById], references: [id])
-  referrals                 User[]   @relation("UserReferrals")
-  aiInsights               String?
-  lastAiInsightAt          DateTime?
-  invoiceIncludeName          Boolean  @default(true)
-  invoiceIncludeEmail         Boolean  @default(false)
-  invoiceIncludePersonalPhone Boolean  @default(false)
-  invoiceIncludeCompanyPhone  Boolean  @default(true)
-  invoiceIncludeCompanyName    Boolean  @default(true)
-  invoiceIncludeAddress       Boolean  @default(true)
-  defaultTaxRate               Float    @default(0.0)
-  globalAutoChaser            Boolean  @default(true)
-  invoicePrefix               String   @default("INV")
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
-  clients                   Client[]
-  invoices                  Invoice[]
-  paymentProviders          PaymentProvider[]
-  subscriptions             Subscription[]
+  id                   Int      @id @default(autoincrement())
+  email                String   @unique
+  password             String
+  plan                 String   @default("FREE")
+  role                 Role     @default(USER)
+  isActive             Boolean  @default(true)
+  onboardingCompleted  Boolean  @default(false)
+
+  // Xendit billing linkage (lives here, not on Subscription, so webhook can find user fast)
+  xenditCustomerId     String?
+  xenditSubscriptionId String?
+
+  // Referral system
+  referralCode         String?  @unique
+  referralCredits      Int      @default(0)
+  referralCreditEarned Boolean  @default(false)
+  referredById         Int?
+  referredBy           User?    @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals            User[]   @relation("UserReferrals")
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // 1-to-1 sub-models
+  profile              UserProfile?
+  quota                UserQuota?
+  notification         UserNotification?
+  invoiceConfig        UserInvoiceConfig?
+  manualPayment        ManualPayment?
+
+  // 1-to-many
+  clients              Client[]
+  invoices             Invoice[]
+  paymentProviders     PaymentProvider[]
+  subscriptions        Subscription[]
 }
 
-model PaymentProvider {
+// ─────────────────────────────────────────────
+// UserProfile — Personal & Company Info
+// ─────────────────────────────────────────────
+model UserProfile {
   id              Int      @id @default(autoincrement())
-  userId          Int
+  userId          Int      @unique
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider        String   // "TOYYIBPAY" or "BILLPLZ"
-  apiKey          String?  // Encrypted
-  secretKey       String?  // Encrypted
-  collectionId    String?
-  categoryCode    String?
-  xSignatureKey   String?  // Encrypted
-  isPreferred     Boolean  @default(false)
-  isActive        Boolean  @default(true)
+  name            String?
+  phoneNumber     String?
+  heardAbout      String?
+  currentStatus   String?
+  companyName     String?
+  companyEmail    String?
+  companyPhone    String?
+  address         String?
+  defaultCurrency String   @default("MYR")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
 
+// ─────────────────────────────────────────────
+// UserQuota — Monthly Usage Counters
+// Reset on billing cycle, compared against Plan limits
+// ─────────────────────────────────────────────
+model UserQuota {
+  id                 Int      @id @default(autoincrement())
+  userId             Int      @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  waSendsUsed        Int      @default(0)
+  emailSendsUsed     Int      @default(0)
+  waRemindersUsed    Int      @default(0)
+  emailRemindersUsed Int      @default(0)
+  aiUsed             Int      @default(0)
+  invoicesUsed       Int      @default(0)
+  lastResetDate      DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// UserNotification — Automation & Integration Settings
+// WhatsApp, Email, Twilio, Auto-Chaser, AI Cache
+// ─────────────────────────────────────────────
+model UserNotification {
+  id                       Int       @id @default(autoincrement())
+  userId                   Int       @unique
+  user                     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reminderInterval         Int       @default(0)
+  whatsappReminderInterval Int       @default(0)
+  whatsappMode             String    @default("SYSTEM")
+  whatsappSendTemplate     String?   @default("{{userName}} {{companyName}} via InvoKita\n\nHello {{clientName}}, here is your invoice {{invoiceNumber}} for {{totalAmount}} {{currency}}. Due on {{dueDate}}. View here: {{invoiceUrl}}")
+  whatsappReminderTemplate String?   @default("{{userName}} {{companyName}} via InvoKita\n\nFriendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. Please ignore if already paid.")
+  twilioSid                String?
+  twilioAuthToken          String?
+  twilioPhoneNumber        String?
+  globalAutoChaser         Boolean   @default(true)
+  // AI Insights cache — stored here to avoid bloating the User row
+  aiInsights               String?
+  lastAiInsightAt          DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// UserInvoiceConfig — Invoice Branding & Defaults
+// ─────────────────────────────────────────────
+model UserInvoiceConfig {
+  id                          Int      @id @default(autoincrement())
+  userId                      Int      @unique
+  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invoicePrefix               String   @default("INV")
+  defaultTaxRate              Float    @default(0.0)
+  invoiceIncludeName          Boolean  @default(true)
+  invoiceIncludeEmail         Boolean  @default(false)
+  invoiceIncludePersonalPhone Boolean  @default(false)
+  invoiceIncludeCompanyPhone  Boolean  @default(true)
+  invoiceIncludeCompanyName   Boolean  @default(true)
+  invoiceIncludeAddress       Boolean  @default(true)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// ManualPayment — Bank Transfer / QR Payment Details
+// ─────────────────────────────────────────────
+model ManualPayment {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankName      String?
+  accountNumber String?
+  accountName   String?
+  qrCode        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// PaymentProvider — Connected Gateways (ToyyibPay, Billplz)
+// ─────────────────────────────────────────────
+model PaymentProvider {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider      String   // "TOYYIBPAY" or "BILLPLZ"
+  apiKey        String?  // Encrypted
+  secretKey     String?  // Encrypted
+  collectionId  String?
+  categoryCode  String?
+  xSignatureKey String?  // Encrypted
+  isPreferred   Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Client — Belongs to a User
+// ─────────────────────────────────────────────
 model Client {
   id               Int       @id @default(autoincrement())
   userId           Int
@@ -111,37 +192,41 @@ model Client {
   updatedAt        DateTime  @updatedAt
 }
 
+// ─────────────────────────────────────────────
+// Invoice — Core billing entity
+// Intentionally snapshots sender info at creation time
+// ─────────────────────────────────────────────
 model Invoice {
-  id                        Int           @id @default(autoincrement())
-  userId                    Int
-  user                      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clientId                  Int
-  client                    Client        @relation(fields: [clientId], references: [id])
-  userInvoiceNumber         Int           @default(0)
-  invoiceNumber             String?
-  invoiceName               String?
-  subject                   String?
-  fromName                  String?
-  fromCompanyName           String?
-  fromEmail                 String?
-  fromAddress               String?
-  date                      DateTime      @default(now())
-  dueDate                   DateTime
-  amount                    Float
-  status                    String        @default("Pending")
-  currency                  String        @default("MYR")
-  latePrediction            String?
-  predictedDelayDays        Int?
-  whatsappStatus            String        @default("Not Sent")
-  whatsappLastSent          DateTime?
-  emailLastSent             DateTime?
-  whatsappLastReminderSent  DateTime?
-  emailLastReminderSent     DateTime?
-  paidAt                    DateTime?
-  template                  String        @default("professional")
-  items                     InvoiceItem[]
-  createdAt                 DateTime      @default(now())
-  updatedAt                 DateTime      @updatedAt
+  id                       Int           @id @default(autoincrement())
+  userId                   Int
+  user                     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId                 Int
+  client                   Client        @relation(fields: [clientId], references: [id])
+  userInvoiceNumber        Int           @default(0)
+  invoiceNumber            String?
+  invoiceName              String?
+  subject                  String?
+  fromName                 String?
+  fromCompanyName          String?
+  fromEmail                String?
+  fromAddress              String?
+  date                     DateTime      @default(now())
+  dueDate                  DateTime
+  amount                   Float
+  status                   String        @default("Pending")
+  currency                 String        @default("MYR")
+  latePrediction           String?
+  predictedDelayDays       Int?
+  whatsappStatus           String        @default("Not Sent")
+  whatsappLastSent         DateTime?
+  emailLastSent            DateTime?
+  whatsappLastReminderSent DateTime?
+  emailLastReminderSent    DateTime?
+  paidAt                   DateTime?
+  template                 String        @default("professional")
+  items                    InvoiceItem[]
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
 }
 
 model InvoiceItem {
@@ -156,6 +241,9 @@ model InvoiceItem {
   updatedAt DateTime @updatedAt
 }
 
+// ─────────────────────────────────────────────
+// Subscription — Billing history per user
+// ─────────────────────────────────────────────
 model Subscription {
   id                   Int      @id @default(autoincrement())
   userId               Int
@@ -163,46 +251,56 @@ model Subscription {
   xenditSubscriptionId String?  @unique
   plan                 String
   amount               Float
-  currency             String    @default("MYR")
-  status               String    @default("PENDING")
+  currency             String   @default("MYR")
+  status               String   @default("PENDING")
   subscriptionStart    DateTime?
   subscriptionEnds     DateTime?
-  cancelAtPeriodEnd    Boolean   @default(false)
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  cancelAtPeriodEnd    Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 }
 
+// ─────────────────────────────────────────────
+// PromoCode — Discount codes for subscriptions
+// ─────────────────────────────────────────────
 model PromoCode {
-  id            Int      @id @default(autoincrement())
-  code          String   @unique
-  discountType  String   // "PERCENTAGE" or "FIXED"
+  id            Int       @id @default(autoincrement())
+  code          String    @unique
+  discountType  String    // "PERCENTAGE" or "FIXED"
   discountValue Float
   maxUses       Int?
-  uses          Int      @default(0)
+  uses          Int       @default(0)
   expiresAt     DateTime?
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-}
-model Plan {
-  id              Int      @id @default(autoincrement())
-  name            String   @unique
-  description     String?
-  price           Float    @default(0.0)
-  currency        String   @default("MYR")
-  interval        String   @default("month")
-  waSends         Int      @default(0)
-  emailSends      Int      @default(0)
-  aiCredits       Int      @default(0)
-  waReminders     Int      @default(0)
-  emailReminders  Int      @default(0)
-  invoices        Int      @default(0)
-  features        String[]
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
+// ─────────────────────────────────────────────
+// Plan — Pricing tiers (admin-managed in DB)
+// ─────────────────────────────────────────────
+model Plan {
+  id             Int      @id @default(autoincrement())
+  name           String   @unique
+  description    String?
+  price          Float    @default(0.0)
+  currency       String   @default("MYR")
+  interval       String   @default("month")
+  waSends        Int      @default(0)
+  emailSends     Int      @default(0)
+  aiCredits      Int      @default(0)
+  waReminders    Int      @default(0)
+  emailReminders Int      @default(0)
+  invoices       Int      @default(0)
+  features       String[]
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// SystemConfiguration — Global admin kill-switches
+// ─────────────────────────────────────────────
 model SystemConfiguration {
   id                     Int      @id @default(autoincrement())
   whatsappEnabled        Boolean  @default(true)

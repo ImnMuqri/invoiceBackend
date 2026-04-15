@@ -13,10 +13,14 @@ async function invoiceRoutes(fastify, opts) {
         user: {
           select: {
             plan: true,
-            manualBankName: true,
-            manualAccountNumber: true,
-            manualAccountName: true,
-            manualQrCode: true,
+            manualPayment: {
+              select: {
+                bankName: true,
+                accountNumber: true,
+                accountName: true,
+                qrCode: true,
+              },
+            },
             paymentProviders: {
               where: { isActive: true, isPreferred: true },
               select: {
@@ -47,8 +51,17 @@ async function invoiceRoutes(fastify, opts) {
       });
     }
 
+    // Flatten manualPayment sub-model to old field names for client compatibility
+    const { user: invoiceUser, ...invoiceRest } = invoice;
     return {
-      ...invoice,
+      ...invoiceRest,
+      user: {
+        ...invoiceUser,
+        manualBankName: invoiceUser.manualPayment?.bankName ?? null,
+        manualAccountNumber: invoiceUser.manualPayment?.accountNumber ?? null,
+        manualAccountName: invoiceUser.manualPayment?.accountName ?? null,
+        manualQrCode: invoiceUser.manualPayment?.qrCode ?? null,
+      },
       system: systemConfig
     };
   });
@@ -140,12 +153,12 @@ async function invoiceRoutes(fastify, opts) {
         latePrediction = "Medium";
       }
 
-      // 1. Get the user's custom prefix
-      const user = await prisma.user.findUnique({
-        where: { id: request.user.id },
+      // 1. Get the user's custom prefix from UserInvoiceConfig
+      const userConfig = await prisma.userInvoiceConfig.findUnique({
+        where: { userId: request.user.id },
         select: { invoicePrefix: true },
       });
-      const prefix = user?.invoicePrefix || "INV";
+      const prefix = userConfig?.invoicePrefix || "INV";
 
       // 2. Find the highest userInvoiceNumber for this user
       const lastInvoice = await prisma.invoice.findFirst({
@@ -318,10 +331,12 @@ async function invoiceRoutes(fastify, opts) {
             isReminder ? "emailReminder" : "emailSend",
           );
 
-          // Fetch user for personalization
+          // Fetch user profile for personalization
           const user = await prisma.user.findUnique({
             where: { id: request.user.id },
+            select: { profile: { select: { name: true, companyName: true } } },
           });
+          const userProfile = user?.profile || {};
 
           // Generate PDF
           // For local development, we must use localhost so Puppeteer can reach the local frontend
@@ -365,8 +380,8 @@ async function invoiceRoutes(fastify, opts) {
           } = require("../../utils/emailTemplates");
           const html = getInvoiceEmailTemplate({
             clientName: invoice.client.name,
-            senderName: user.name || "Our Company",
-            senderCompany: user.companyName,
+            senderName: userProfile.name || "Our Company",
+            senderCompany: userProfile.companyName,
             invoiceNumber: invoice.invoiceNumber || `#${id}`,
             amount: invoice.amount,
             currency: invoice.currency,
@@ -385,7 +400,7 @@ async function invoiceRoutes(fastify, opts) {
 
           await fastify.email.send({
             to: targetEmail,
-            subject: `${subjectPrefix}Invoice ${invoice.invoiceNumber || id} from ${user.companyName || user.name}`,
+            subject: `${subjectPrefix}Invoice ${invoice.invoiceNumber || id} from ${userProfile.companyName || userProfile.name}`,
             html,
             attachments: pdfBuffer
               ? [
@@ -418,6 +433,7 @@ async function invoiceRoutes(fastify, opts) {
           where: { id: request.user.id },
           select: { plan: true },
         });
+        // Note: WhatsApp deep-linking is handled on the frontend
 
         if (user.plan === "FREE") {
           return reply.forbidden(

@@ -7,50 +7,38 @@ async function authRoutes(fastify, opts) {
   fastify.post("/register", async (request, reply) => {
     const { email, password, name, referralCode } = request.body;
 
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
-
+    const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       return reply.badRequest("User already exists");
     }
 
-    // Find referrer if referralCode is provided
     let referrerId = null;
     if (referralCode) {
-      const referrer = await prisma.user.findUnique({
-        where: { referralCode },
-      });
-      if (referrer) {
-        referrerId = referrer.id;
-      }
+      const referrer = await prisma.user.findUnique({ where: { referralCode } });
+      if (referrer) referrerId = referrer.id;
     }
 
-    // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Generate a unique referral code for the new user
     const crypto = require("crypto");
     const newReferralCode = crypto.randomBytes(4).toString("hex").toUpperCase();
 
+    // Create user + all 5 sub-records in a single atomic transaction
     const user = await prisma.user.create({
       data: {
         email,
         password: hashedPassword,
-        name,
         plan: "FREE",
         referredById: referrerId,
         referralCode: newReferralCode,
+        // Nested creates for sub-models — they inherit defaults from schema
+        profile:        { create: { name } },
+        quota:          { create: {} },
+        notification:   { create: {} },
+        invoiceConfig:  { create: {} },
+        manualPayment:  { create: {} },
       },
     });
 
-    // If referred, we don't increment credits yet?
-    // Usually credits are incremented when the referred user subscribes (as per user request).
-    // Or maybe just for signing up? The user said "when user subscribe you can claim reward".
-    // So I'll increment credits in a webhook or subscription logic later.
-
-    // Generate Tokens
     const accessToken = fastify.jwt.sign(
       { id: user.id, email: user.email, role: user.role },
       { expiresIn: "15m" },
@@ -66,7 +54,7 @@ async function authRoutes(fastify, opts) {
       user: {
         id: user.id,
         email: user.email,
-        name: user.name,
+        name,
         plan: user.plan,
         role: user.role,
         onboardingCompleted: user.onboardingCompleted,
@@ -81,6 +69,7 @@ async function authRoutes(fastify, opts) {
     const user = await prisma.user.findUnique({
       where: { email },
       include: {
+        profile: true,
         subscriptions: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -94,21 +83,12 @@ async function authRoutes(fastify, opts) {
       },
     });
 
-    if (!user) {
-      return reply.unauthorized("Invalid email or password");
-    }
+    if (!user) return reply.unauthorized("Invalid email or password");
+    if (!user.isActive) return reply.unauthorized("Account is disabled. Please contact support.");
 
-    if (!user.isActive) {
-      return reply.unauthorized("Account is disabled. Please contact support.");
-    }
-
-    // Compare passwords
     const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return reply.unauthorized("Invalid email or password");
-    }
+    if (!isPasswordValid) return reply.unauthorized("Invalid email or password");
 
-    // Generate Tokens
     const accessToken = fastify.jwt.sign(
       { id: user.id, email: user.email, role: user.role },
       { expiresIn: "15m" },
@@ -124,11 +104,11 @@ async function authRoutes(fastify, opts) {
       user: {
         id: user.id,
         email: user.email,
-        name: user.name,
+        name: user.profile?.name,
         plan: user.plan,
         role: user.role,
-        companyPhone: user.companyPhone,
-        reminderInterval: user.reminderInterval,
+        companyPhone: user.profile?.companyPhone,
+        reminderInterval: user.notification?.reminderInterval ?? 0,
         onboardingCompleted: user.onboardingCompleted,
         subscriptions: user.subscriptions,
       },
@@ -138,14 +118,10 @@ async function authRoutes(fastify, opts) {
   // POST refresh
   fastify.post("/refresh", async (request, reply) => {
     const { refreshToken } = request.body;
-
-    if (!refreshToken) {
-      return reply.unauthorized("No refresh token provided");
-    }
+    if (!refreshToken) return reply.unauthorized("No refresh token provided");
 
     try {
       const decoded = await fastify.jwt.verify(refreshToken);
-
       const user = await prisma.user.findUnique({
         where: { id: decoded.id },
         select: { isActive: true },

@@ -40,18 +40,21 @@ async function whatsappRoutes(fastify, opts) {
 
         const user = await fastify.prisma.user.findUnique({
           where: { id: request.user.id },
+          select: { notification: true, profile: { select: { name: true, companyName: true } } },
         });
+        const notif = user?.notification || {};
+        const profile = user?.profile || {};
 
         const template =
-          user?.whatsappSendTemplate ||
+          notif.whatsappSendTemplate ||
           "{{userName}} {{companyName}} via InvoKita\n\nHello {{clientName}}, here is your invoice {{invoiceNumber}} for {{totalAmount}} {{currency}}. Due on {{dueDate}}. View here: {{invoiceUrl}}";
 
         const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/['"]/g, "").replace(/\/$/, "") : "http://localhost:3000";
         const invoiceUrl = `${frontendUrl}/pay/${invoice.id}`;
 
         const message = template
-          .replace(/{{userName}}/g, user.name || "")
-          .replace(/{{companyName}}/g, user.companyName || "InvoKita User")
+          .replace(/{{userName}}/g, profile.name || "")
+          .replace(/{{companyName}}/g, profile.companyName || "InvoKita User")
           .replace(/{{clientName}}/g, invoice.client.name)
           .replace(/{{invoiceNumber}}/g, invoice.invoiceNumber || invoice.id)
           .replace(/{{totalAmount}}/g, invoice.amount.toLocaleString())
@@ -67,11 +70,11 @@ async function whatsappRoutes(fastify, opts) {
           );
 
         let credentials = null;
-        if (user.whatsappMode === "CUSTOM") {
+        if (notif.whatsappMode === "CUSTOM") {
           credentials = {
-            sid: user.twilioSid,
-            token: user.twilioAuthToken,
-            phoneNumber: user.twilioPhoneNumber,
+            sid: notif.twilioSid,
+            token: notif.twilioAuthToken,
+            phoneNumber: notif.twilioPhoneNumber,
           };
         }
 
@@ -118,18 +121,21 @@ async function whatsappRoutes(fastify, opts) {
 
         const user = await fastify.prisma.user.findUnique({
           where: { id: request.user.id },
+          select: { notification: true, profile: { select: { name: true, companyName: true } } },
         });
+        const notif = user?.notification || {};
+        const profile = user?.profile || {};
 
         const template =
-          user?.whatsappReminderTemplate ||
+          notif.whatsappReminderTemplate ||
           "{{userName}} {{companyName}} via InvoKita\n\nFriendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. Please ignore if already paid.";
 
         const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/['"]/g, "").replace(/\/$/, "") : "http://localhost:3000";
         const invoiceUrl = `${frontendUrl}/pay/${invoice.id}`;
 
         const message = template
-          .replace(/{{userName}}/g, user.name || "")
-          .replace(/{{companyName}}/g, user.companyName || "InvoKita User")
+          .replace(/{{userName}}/g, profile.name || "")
+          .replace(/{{companyName}}/g, profile.companyName || "InvoKita User")
           .replace(/{{clientName}}/g, invoice.client.name)
           .replace(/{{invoiceNumber}}/g, invoice.invoiceNumber || invoice.id)
           .replace(/{{totalAmount}}/g, invoice.amount.toLocaleString())
@@ -145,11 +151,11 @@ async function whatsappRoutes(fastify, opts) {
           );
 
         let credentials = null;
-        if (user.whatsappMode === "CUSTOM") {
+        if (notif.whatsappMode === "CUSTOM") {
           credentials = {
-            sid: user.twilioSid,
-            token: user.twilioAuthToken,
-            phoneNumber: user.twilioPhoneNumber,
+            sid: notif.twilioSid,
+            token: notif.twilioAuthToken,
+            phoneNumber: notif.twilioPhoneNumber,
           };
         }
 

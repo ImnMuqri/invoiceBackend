@@ -9,11 +9,16 @@ async function dashboardRoutes(fastify, opts) {
     try {
       const now = new Date();
 
-      // Get user's default currency and plan
+      // Get user's default currency and plan from sub-models
       const user = await prisma.user.findUnique({
         where: { id: request.user.id },
+        select: {
+          plan: true,
+          profile: { select: { defaultCurrency: true } },
+          notification: { select: { aiInsights: true, lastAiInsightAt: true } },
+        },
       });
-      const targetCurrency = user.defaultCurrency || "MYR";
+      const targetCurrency = user.profile?.defaultCurrency || "MYR";
       const plan = user.plan || "FREE";
 
       // Fetch all relevant invoices for manual summation with conversion
@@ -123,17 +128,18 @@ async function dashboardRoutes(fastify, opts) {
       let insights = [];
       if (plan !== "FREE") {
         const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+        const notif = user.notification || {};
         let cachedInsights = [];
         try {
-          cachedInsights = user.aiInsights ? JSON.parse(user.aiInsights) : [];
+          cachedInsights = notif.aiInsights ? JSON.parse(notif.aiInsights) : [];
         } catch (e) {
           cachedInsights = [];
         }
 
         // Regenerate if no insights or 2 days have passed
         if (
-          !user.lastAiInsightAt ||
-          new Date(user.lastAiInsightAt) < twoDaysAgo
+          !notif.lastAiInsightAt ||
+          new Date(notif.lastAiInsightAt) < twoDaysAgo
         ) {
           const { generateInsights } = require("../../utils/aiService");
 
@@ -149,10 +155,15 @@ async function dashboardRoutes(fastify, opts) {
           const newInsights = await generateInsights(aiContext);
 
           if (newInsights && newInsights.length > 0) {
-            // Persist insights and update cooldown
-            await prisma.user.update({
-              where: { id: user.id },
-              data: {
+            // Persist insights to UserNotification to avoid bloating User row
+            await prisma.userNotification.upsert({
+              where: { userId: request.user.id },
+              update: {
+                aiInsights: JSON.stringify(newInsights),
+                lastAiInsightAt: new Date(),
+              },
+              create: {
+                userId: request.user.id,
                 aiInsights: JSON.stringify(newInsights),
                 lastAiInsightAt: new Date(),
               },
@@ -240,8 +251,9 @@ async function dashboardRoutes(fastify, opts) {
 
       const user = await prisma.user.findUnique({
         where: { id: request.user.id },
+        select: { profile: { select: { defaultCurrency: true } } },
       });
-      const targetCurrency = user.defaultCurrency || "MYR";
+      const targetCurrency = user.profile?.defaultCurrency || "MYR";
 
       const paidInvoices = await prisma.invoice.findMany({
         where: {

@@ -9,15 +9,23 @@ async function cronPlugin(fastify, opts) {
     try {
       const now = new Date();
 
-      // 1. Find users who have automated reminders enabled (either Email or WA)
+      // 1. Find users who have automated reminders enabled via UserNotification
       const users = await fastify.prisma.user.findMany({
         where: {
-          globalAutoChaser: true,
           plan: { in: ["PRO", "MAX"] },
-          OR: [
-            { reminderInterval: { not: 0 } },
-            { whatsappReminderInterval: { not: 0 } },
-          ],
+          notification: {
+            globalAutoChaser: true,
+            OR: [
+              { reminderInterval: { not: 0 } },
+              { whatsappReminderInterval: { not: 0 } },
+            ],
+          },
+        },
+        select: {
+          id: true,
+          plan: true,
+          profile: { select: { name: true, companyName: true } },
+          notification: true,
         },
       });
 
@@ -43,10 +51,12 @@ async function cronPlugin(fastify, opts) {
           const today = new Date(now);
           today.setHours(0, 0, 0, 0);
 
+          const notif = user.notification || {};
+
           // --- 3a. Process Email Reminder ---
-          if (user.reminderInterval !== 0 && invoice.client.autoEmailChaser) {
+          if (notif.reminderInterval !== 0 && invoice.client.autoEmailChaser) {
             let shouldRemindEmail = false;
-            const interval = user.reminderInterval;
+            const interval = notif.reminderInterval;
 
             if (interval < 0) {
               const daysBefore = Math.abs(interval);
@@ -81,11 +91,11 @@ async function cronPlugin(fastify, opts) {
 
           // --- 3b. Process WhatsApp Reminder ---
           if (
-            user.whatsappReminderInterval !== 0 &&
+            notif.whatsappReminderInterval !== 0 &&
             invoice.client.autoChaser
           ) {
             let shouldRemindWa = false;
-            const interval = user.whatsappReminderInterval;
+            const interval = notif.whatsappReminderInterval;
 
             if (interval < 0) {
               const daysBefore = Math.abs(interval);
@@ -129,6 +139,7 @@ async function cronPlugin(fastify, opts) {
       .replace(/['"]/g, "")
       .replace(/\/$/, "");
     const invoiceUrl = `${frontendUrl}/pay/${invoice.id}`;
+    const profile = user.profile || {};
 
     try {
       await fastify.usage.checkAndIncrement(user.id, "emailReminder");
@@ -136,8 +147,8 @@ async function cronPlugin(fastify, opts) {
       const { getInvoiceEmailTemplate } = require("../utils/emailTemplates");
       const html = getInvoiceEmailTemplate({
         clientName: invoice.client.name,
-        senderName: user.name || "Our Company",
-        senderCompany: user.companyName,
+        senderName: profile.name || "Our Company",
+        senderCompany: profile.companyName,
         invoiceNumber: invoice.invoiceNumber || `#${invoice.id}`,
         amount: invoice.amount,
         currency: invoice.currency,
@@ -148,7 +159,7 @@ async function cronPlugin(fastify, opts) {
 
       await fastify.email.send({
         to: invoice.client.email,
-        subject: `Reminder: Invoice #${invoice.invoiceNumber || invoice.id} from ${user.companyName || user.name}`,
+        subject: `Reminder: Invoice #${invoice.invoiceNumber || invoice.id} from ${profile.companyName || profile.name}`,
         html,
       });
 
@@ -170,16 +181,18 @@ async function cronPlugin(fastify, opts) {
       .replace(/['"]/g, "")
       .replace(/\/$/, "");
     const invoiceUrl = `${frontendUrl}/pay/${invoice.id}`;
+    const notif = user.notification || {};
+    const profile = user.profile || {};
 
     try {
       await fastify.usage.checkAndIncrement(user.id, "waReminder");
 
       const template =
-        user.whatsappReminderTemplate ||
+        notif.whatsappReminderTemplate ||
         "Friendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. View: {{invoiceUrl}}";
       const message = template
-        .replace(/{{userName}}/g, user.name || "")
-        .replace(/{{companyName}}/g, user.companyName || "InvoKita User")
+        .replace(/{{userName}}/g, profile.name || "")
+        .replace(/{{companyName}}/g, profile.companyName || "InvoKita User")
         .replace(/{{clientName}}/g, invoice.client.name)
         .replace(/{{invoiceNumber}}/g, invoice.invoiceNumber || invoice.id)
         .replace(/{{totalAmount}}/g, invoice.amount.toLocaleString())
@@ -191,11 +204,11 @@ async function cronPlugin(fastify, opts) {
         );
 
       let credentials = null;
-      if (user.whatsappMode === "CUSTOM") {
+      if (notif.whatsappMode === "CUSTOM") {
         credentials = {
-          sid: user.twilioSid,
-          token: user.twilioAuthToken,
-          phoneNumber: user.twilioPhoneNumber,
+          sid: notif.twilioSid,
+          token: notif.twilioAuthToken,
+          phoneNumber: notif.twilioPhoneNumber,
         };
       }
 
