@@ -30,11 +30,10 @@ async function paymentRoutes(fastify, opts) {
       return reply.badRequest("Invalid provider");
     }
 
-    const encryptedData = {
-      apiKey: apiKey ? encrypt(apiKey) : null,
-      secretKey: secretKey ? encrypt(secretKey) : null,
-      xSignatureKey: xSignatureKey ? encrypt(xSignatureKey) : null,
-    };
+    const encryptedData = {};
+    if (apiKey) encryptedData.apiKey = encrypt(apiKey);
+    if (secretKey) encryptedData.secretKey = encrypt(secretKey);
+    if (xSignatureKey) encryptedData.xSignatureKey = encrypt(xSignatureKey);
 
     const existing = await prisma.paymentProvider.findFirst({
       where: { userId: request.user.id, provider },
