@@ -101,10 +101,27 @@ async function build() {
     "application/x-www-form-urlencoded",
     { parseAs: "string" },
     function (req, body, done) {
+      req.rawBody = body; // Attach raw body
       try {
         const parsed = Object.fromEntries(new URLSearchParams(body));
         done(null, parsed);
       } catch (err) {
+        done(err, undefined);
+      }
+    },
+  );
+
+  // Parse application/json and keep raw body for signature verification (HitPay)
+  fastify.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    function (req, body, done) {
+      req.rawBody = body; // Attach raw body
+      try {
+        const json = JSON.parse(body);
+        done(null, json);
+      } catch (err) {
+        err.statusCode = 400;
         done(err, undefined);
       }
     },

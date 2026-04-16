@@ -48,6 +48,29 @@ class ToyyibPay {
       throw err;
     }
   }
+
+  /**
+   * Get bill transaction status from ToyyibPay (for verification)
+   */
+  async getBillTransactions(billCode) {
+    const params = new URLSearchParams();
+    params.append("billCode", billCode);
+
+    try {
+      const response = await axios.post(`${this.baseUrl}/index.php/api/getBillTransactions`, params);
+      
+      // ToyyibPay returns an array of transactions
+      if (Array.isArray(response.data)) {
+        return response.data;
+      }
+      
+      console.error("ToyyibPay Query Error:", response.data);
+      throw new Error("Failed to query ToyyibPay bill transactions");
+    } catch (err) {
+      console.error("ToyyibPay Query failed:", err.message);
+      throw err;
+    }
+  }
 }
 
 module.exports = ToyyibPay;

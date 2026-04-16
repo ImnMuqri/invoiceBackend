@@ -164,6 +164,8 @@ model PaymentProvider {
   collectionId  String?
   categoryCode  String?
   xSignatureKey String?  // Encrypted
+  merchantId    String?
+  salt          String?  // Encrypted
   isPreferred   Boolean  @default(false)
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())

@@ -1,6 +1,8 @@
 const { decrypt } = require("../../utils/encryption");
 const ToyyibPay = require("../../utils/gateways/toyyibpay");
 const Billplz = require("../../utils/gateways/billplz");
+const HitPay = require("../../utils/gateways/hitpay");
+const SenangPay = require("../../utils/gateways/senangpay");
 const { markInvoiceAsPaid, handlePaymentFailure } = require("../../utils/invoiceUtils");
 
 async function payRoutes(fastify, opts) {
@@ -92,8 +94,9 @@ async function payRoutes(fastify, opts) {
     if (!provider)
       return reply.badRequest("Payment provider not found or inactive");
 
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const callbackUrl = `${process.env.BACKEND_URL || "https://yourbackend.com"}/api/pay/webhook/${provider.provider.toLowerCase()}`;
+    const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+    const backendUrl = (process.env.BACKEND_URL || "https://yourbackend.com").replace(/\/$/, "");
+    const callbackUrl = `${backendUrl}/api/pay/webhook/${provider.provider.toLowerCase()}`;
     const returnUrl = `${frontendUrl}/pay/${invoice.id}?status=success`;
 
     try {
@@ -129,6 +132,39 @@ async function payRoutes(fastify, opts) {
           externalId: invoice.id.toString(),
           payerName: invoice.client.name,
           payerEmail: invoice.client.email,
+        });
+        return { paymentUrl: bill.paymentUrl };
+      }
+
+      if (provider.provider === "HITPAY") {
+        const apiKey = decrypt(provider.apiKey);
+        const salt = decrypt(provider.salt);
+        const hp = new HitPay(apiKey, salt);
+        const bill = await hp.createBill({
+          billDescription: `Invoice ${invoice.invoiceNumber}`,
+          amount: invoice.amount,
+          currency: invoice.currency,
+          returnUrl,
+          callbackUrl,
+          externalId: invoice.id.toString(),
+          payerName: invoice.client.name,
+          payerEmail: invoice.client.email,
+        });
+        return { paymentUrl: bill.paymentUrl };
+      }
+
+      if (provider.provider === "SENANGPAY") {
+        const secretKey = decrypt(provider.secretKey);
+        const sp = new SenangPay(provider.merchantId, secretKey);
+        const bill = await sp.createBill({
+          billDescription: `Invoice ${invoice.invoiceNumber}`,
+          amount: invoice.amount,
+          returnUrl,
+          callbackUrl,
+          externalId: invoice.id.toString(),
+          payerName: invoice.client.name,
+          payerEmail: invoice.client.email,
+          payerPhone: invoice.client.phone,
         });
         return { paymentUrl: bill.paymentUrl };
       }
@@ -235,21 +271,48 @@ async function payRoutes(fastify, opts) {
     // status 1 = success, 3 = failed, 2 = pending
     if (status === "1") {
       const invoiceId = parseInt(order_id);
-      if (!isNaN(invoiceId)) {
+      if (isNaN(invoiceId)) return "ok";
+
+      try {
+        const invoice = await prisma.invoice.findUnique({
+          where: { id: invoiceId },
+          include: {
+            user: {
+              include: {
+                paymentProviders: {
+                  where: { provider: "TOYYIBPAY", isActive: true },
+                },
+              },
+            },
+          },
+        });
+
+        if (invoice && invoice.user.paymentProviders[0]) {
+          const provider = invoice.user.paymentProviders[0];
+          const secret = decrypt(provider.secretKey);
+          const tp = new ToyyibPay(secret, provider.categoryCode);
+          
+          // Hardening: Verify the status directly with ToyyibPay API
+          const transactions = await tp.getBillTransactions(billcode);
+          const isActuallyPaid = transactions.some(
+            (txn) => String(txn.billExternalReferenceNo) === order_id && String(txn.billpaymentStatus) === "1"
+          );
+
+          if (!isActuallyPaid) {
+            fastify.log.warn({ invoiceId, billcode }, "ToyyibPay Webhook Verification Failed: API reports not paid");
+            return "ok";
+          }
+        }
+
         await markInvoiceAsPaid(prisma, invoiceId);
-        fastify.log.info(
-          { invoiceId },
-          "Invoice marked as PAID via ToyyibPay Webhook",
-        );
+        fastify.log.info({ invoiceId }, "Invoice marked as PAID via ToyyibPay Webhook (Verified)");
+      } catch (err) {
+        fastify.log.error(err, "Error verifying ToyyibPay webhook");
       }
     } else if (status === "3") {
       const invoiceId = parseInt(order_id);
       if (!isNaN(invoiceId)) {
         await handlePaymentFailure(prisma, invoiceId, reason || "Payment failed");
-        fastify.log.info(
-          { invoiceId, reason },
-          "Invoice payment FAILED via ToyyibPay Webhook",
-        );
       }
     }
 
@@ -284,39 +347,18 @@ async function payRoutes(fastify, opts) {
         if (invoice && invoice.user.paymentProviders[0]) {
           const provider = invoice.user.paymentProviders[0];
           const xSignatureKey = decrypt(provider.xSignatureKey);
+          const bp = new Billplz(decrypt(provider.apiKey), provider.collectionId, xSignatureKey);
 
           if (xSignatureKey) {
-            // Billplz Signature Verification
-            // The signature is generated by joining values (sorted by key) with | and HMAC-SHA256
-            const crypto = require("crypto");
-            const payload = { ...request.body };
-            delete payload.x_signature;
-
-            const sourceString = Object.keys(payload)
-              .sort()
-              .map((key) => `${key}${payload[key]}`)
-              .join("|");
-
-            const expectedSignature = crypto
-              .createHmac("sha256", xSignatureKey)
-              .update(sourceString)
-              .digest("hex");
-
-            // Some versions of Billplz use a simpler | joining or different sorting
-            // If the robust one fails, we can fallback or alert.
-            // For now, let's at least mark as paid but log the verification status.
-            fastify.log.info(
-              { invoiceId, expectedSignature, receivedSignature: x_signature },
-              "Verifying Billplz Signature",
-            );
+            if (!bp.verifySignature(request.body, x_signature)) {
+              fastify.log.warn({ invoiceId }, "Billplz X-Signature Verification Failed");
+              return "ok";
+            }
           }
         }
 
         await markInvoiceAsPaid(prisma, invoiceId);
-        fastify.log.info(
-          { invoiceId },
-          "Invoice marked as PAID via Billplz Webhook",
-        );
+        fastify.log.info({ invoiceId }, "Invoice marked as PAID via Billplz Webhook (Verified)");
       } catch (err) {
         fastify.log.error(err, "Error processing Billplz webhook");
       }
@@ -332,6 +374,99 @@ async function payRoutes(fastify, opts) {
     }
 
     return "ok";
+  });
+
+  // Webhook for HitPay
+  fastify.post("/webhook/hitpay", async (request, reply) => {
+    const { reference_number, status, hmac } = request.body;
+    
+    fastify.log.info({ reference_number, status }, "HitPay Webhook Received");
+
+    const invoiceId = parseInt(reference_number);
+    if (isNaN(invoiceId)) return "ok";
+
+    // Verify Signature
+    try {
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          user: {
+            include: {
+              paymentProviders: {
+                where: { provider: "HITPAY", isActive: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (invoice && invoice.user.paymentProviders[0]) {
+        const provider = invoice.user.paymentProviders[0];
+        const salt = decrypt(provider.salt);
+        const hp = new HitPay(decrypt(provider.apiKey), salt);
+        
+        if (!hp.verifySignature(request.rawBody, hmac)) {
+          fastify.log.warn({ invoiceId }, "HitPay Signature Verification Failed (Hardened)");
+          return "ok";
+        }
+      }
+
+      if (status === "completed") {
+        await markInvoiceAsPaid(prisma, invoiceId);
+      } else {
+        await handlePaymentFailure(prisma, invoiceId, `HitPay status: ${status}`);
+      }
+    } catch (err) {
+      fastify.log.error(err, "Error processing HitPay webhook");
+    }
+
+    return "ok";
+  });
+
+  // Webhook for SenangPay
+  fastify.get("/webhook/senangpay", async (request, reply) => {
+    const { status_id, order_id, transaction_id, msg, hash } = request.query;
+
+    fastify.log.info({ order_id, status_id, msg }, "SenangPay Webhook Received");
+
+    const invoiceId = parseInt(order_id);
+    if (isNaN(invoiceId)) return "ok";
+
+    try {
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          user: {
+            include: {
+              paymentProviders: {
+                where: { provider: "SENANGPAY", isActive: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (invoice && invoice.user.paymentProviders[0]) {
+        const provider = invoice.user.paymentProviders[0];
+        const sp = new SenangPay(provider.merchantId, decrypt(provider.secretKey));
+        
+        if (!sp.verifyHash(request.query)) {
+          fastify.log.warn({ invoiceId }, "SenangPay Hash Verification Failed");
+          return "ok";
+        }
+      }
+
+      // SenangPay status_id: 1 = Success, 0 = Failed
+      if (status_id === "1") {
+        await markInvoiceAsPaid(prisma, invoiceId);
+      } else {
+        await handlePaymentFailure(prisma, invoiceId, msg || "SenangPay transaction failed");
+      }
+    } catch (err) {
+      fastify.log.error(err, "Error processing SenangPay webhook");
+    }
+
+    return reply.type("text/plain").send("OK");
   });
 }
 

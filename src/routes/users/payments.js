@@ -16,6 +16,7 @@ async function paymentRoutes(fastify, opts) {
         isPreferred: true,
         collectionId: true,
         categoryCode: true,
+        merchantId: true,
         createdAt: true,
       },
     });
@@ -24,9 +25,9 @@ async function paymentRoutes(fastify, opts) {
 
   // POST connect/update provider
   fastify.post("/", async (request, reply) => {
-    const { provider, apiKey, secretKey, collectionId, categoryCode, xSignatureKey } = request.body;
+    const { provider, apiKey, secretKey, collectionId, categoryCode, xSignatureKey, salt, merchantId } = request.body;
 
-    if (!["TOYYIBPAY", "BILLPLZ"].includes(provider)) {
+    if (!["TOYYIBPAY", "BILLPLZ", "HITPAY", "SENANGPAY"].includes(provider)) {
       return reply.badRequest("Invalid provider");
     }
 
@@ -34,6 +35,7 @@ async function paymentRoutes(fastify, opts) {
     if (apiKey) encryptedData.apiKey = encrypt(apiKey);
     if (secretKey) encryptedData.secretKey = encrypt(secretKey);
     if (xSignatureKey) encryptedData.xSignatureKey = encrypt(xSignatureKey);
+    if (salt) encryptedData.salt = encrypt(salt);
 
     const existing = await prisma.paymentProvider.findFirst({
       where: { userId: request.user.id, provider },
@@ -49,6 +51,7 @@ async function paymentRoutes(fastify, opts) {
           ...encryptedData,
           collectionId,
           categoryCode,
+          merchantId,
           isActive: true,
           isPreferred: count === 1 ? true : existing.isPreferred,
         },
@@ -63,6 +66,7 @@ async function paymentRoutes(fastify, opts) {
         ...encryptedData,
         collectionId,
         categoryCode,
+        merchantId,
         isPreferred: count === 0 ? true : false,
       },
     });

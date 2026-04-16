@@ -69,6 +69,31 @@ class Billplz {
       throw err;
     }
   }
+
+  /**
+   * Verify Billplz X-Signature
+   */
+  verifySignature(params, receivedSignature) {
+    if (!this.xSignatureKey) return true; // Fail-safe if not configured
+
+    // 1. Get all keys except x_signature
+    const keys = Object.keys(params)
+      .filter((key) => key !== "x_signature")
+      .sort();
+
+    // 2. Join into a string: key1value1|key2value2|...
+    const sourceString = keys
+      .map((key) => `${key}${params[key]}`)
+      .join("|");
+
+    // 3. Compute HMAC-SHA256
+    const expectedSignature = require("crypto")
+      .createHmac("sha256", this.xSignatureKey)
+      .update(sourceString)
+      .digest("hex");
+
+    return expectedSignature === receivedSignature;
+  }
 }
 
 module.exports = Billplz;
