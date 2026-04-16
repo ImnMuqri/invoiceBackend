@@ -33,19 +33,35 @@ async function supportRoutes(fastify, opts) {
     }
 
     const payload = request.body;
-    fastify.log.info({ payload }, "Resend Webhook Payload");
+    fastify.log.info({ 
+      keys: Object.keys(payload),
+      hasData: !!payload.data,
+      dataType: typeof payload.data 
+    }, "Resend Webhook Structure Audit");
+    fastify.log.info({ payload }, "Resend Webhook Full Payload");
     
     // Resend webhooks often wrap the email data in a 'data' property
     const data = payload.data || payload;
 
     // Resend Inbound fields: from, to, subject, text, html, id
-    const rawFrom = data.from || "";
-    const fromEmail = typeof rawFrom === 'string' ? (rawFrom.match(/<([^>]+)>/)?.[1] || rawFrom) : (rawFrom.email || "");
-    const fromName = typeof rawFrom === 'string' ? (rawFrom.match(/^([^<]+)/)?.[1]?.trim() || "") : (rawFrom.name || "");
+    // We check both payload and nested data to be safe
+    const rawFrom = data.from || payload.from || "";
+    let fromEmail = "";
+    let fromName = "";
+
+    if (typeof rawFrom === 'string' && rawFrom) {
+      fromEmail = rawFrom.match(/<([^>]+)>/)?.[1] || rawFrom;
+      fromName = rawFrom.match(/^([^<]+)/)?.[1]?.trim() || "";
+    } else if (typeof rawFrom === 'object' && rawFrom !== null) {
+      fromEmail = rawFrom.email || "";
+      fromName = rawFrom.name || "";
+    }
     
-    const subject = data.subject || "No Subject";
-    const content = data.text || data.html || "No Content";
-    const resendId = data.id || data.resendId;
+    const subject = data.subject || payload.subject || "No Subject";
+    const textContent = data.text || payload.text || "";
+    const htmlContent = data.html || payload.html || "";
+    const content = textContent || htmlContent || "No Content";
+    const resendId = data.id || payload.id || data.resendId;
 
     if (!fromEmail) {
       fastify.log.warn("Resend Webhook: fromEmail is empty, skipping ticket creation");
