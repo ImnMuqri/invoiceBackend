@@ -32,7 +32,23 @@ async function aiRoutes(fastify, opts) {
   // Apply authentication
   fastify.addHook("onRequest", fastify.authenticate);
 
-  fastify.post("/parse-invoice", async (request, reply) => {
+  fastify.post(
+    "/parse-invoice",
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: "1 minute",
+          errorResponseBuilder: (request, context) => ({
+            statusCode: 429,
+            error: "Too Many Requests",
+            message:
+              "Please slow down! You are sending messages too quickly to the AI. Please wait a moment before trying again.",
+          }),
+        },
+      },
+    },
+    async (request, reply) => {
     try {
       // 1. Initial check (prevent usage if already at limit)
       await fastify.usage.checkOnly(request.user.id, "ai");
