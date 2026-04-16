@@ -4,6 +4,19 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Seeding database...");
 
+  // Create a default user if none exists
+  const defaultUser = await prisma.user.upsert({
+    where: { email: "admin@invokita.com" },
+    update: {},
+    create: {
+      email: "admin@invokita.com",
+      password: "hashed_password_here", // In a real app, use bcrypt
+      plan: "PRO",
+      role: "ADMIN",
+      onboardingCompleted: true,
+    },
+  });
+
   // Create some clients
   const client1 = await prisma.client.upsert({
     where: { id: 1 },
@@ -17,6 +30,7 @@ async function main() {
       totalRevenue: 45000,
       profitMargin: 35,
       status: "Active",
+      userId: defaultUser.id,
     },
   });
 
@@ -32,6 +46,7 @@ async function main() {
       totalRevenue: 120000,
       profitMargin: 10,
       status: "Active",
+      userId: defaultUser.id,
     },
   });
 
@@ -47,6 +62,7 @@ async function main() {
       totalRevenue: 85000,
       profitMargin: 25,
       status: "Active",
+      userId: defaultUser.id,
     },
   });
 
@@ -57,6 +73,7 @@ async function main() {
     create: {
       id: 1,
       clientId: client1.id,
+      userId: defaultUser.id,
       date: new Date("2023-10-01"),
       dueDate: new Date("2023-10-15"),
       amount: 5000,
@@ -73,6 +90,7 @@ async function main() {
     create: {
       id: 2,
       clientId: client2.id,
+      userId: defaultUser.id,
       date: new Date("2023-11-01"),
       dueDate: new Date("2023-11-15"),
       amount: 25000,
@@ -90,6 +108,7 @@ async function main() {
     create: {
       id: 3,
       clientId: client3.id,
+      userId: defaultUser.id,
       date: new Date("2023-11-20"),
       dueDate: new Date("2023-12-05"),
       amount: 12000,
