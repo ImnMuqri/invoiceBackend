@@ -35,14 +35,22 @@ async function supportRoutes(fastify, opts) {
     const payload = request.body;
     fastify.log.info({ payload }, "Resend Webhook Payload");
     
-    // Resend Inbound payload: from, to, subject, text, html, etc.
-    const rawFrom = payload.from || "";
-    const fromEmail = rawFrom.match(/<([^>]+)>/)?.[1] || rawFrom;
-    const fromName = rawFrom.match(/^([^<]+)/)?.[1]?.trim() || "";
+    // Resend webhooks often wrap the email data in a 'data' property
+    const data = payload.data || payload;
+
+    // Resend Inbound fields: from, to, subject, text, html, id
+    const rawFrom = data.from || "";
+    const fromEmail = typeof rawFrom === 'string' ? (rawFrom.match(/<([^>]+)>/)?.[1] || rawFrom) : (rawFrom.email || "");
+    const fromName = typeof rawFrom === 'string' ? (rawFrom.match(/^([^<]+)/)?.[1]?.trim() || "") : (rawFrom.name || "");
     
-    const subject = payload.subject || "No Subject";
-    const content = payload.text || payload.html || "No Content";
-    const resendId = payload.id; // Unique email ID from Resend
+    const subject = data.subject || "No Subject";
+    const content = data.text || data.html || "No Content";
+    const resendId = data.id || data.resendId;
+
+    if (!fromEmail) {
+      fastify.log.warn("Resend Webhook: fromEmail is empty, skipping ticket creation");
+      return reply.badRequest("Missing fromEmail");
+    }
 
     try {
       // Find existing ticket by fromEmail and subject (simple threading)
