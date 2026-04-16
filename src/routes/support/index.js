@@ -1,4 +1,5 @@
 const { Resend } = require("resend");
+const { Webhook } = require("svix");
 
 async function supportRoutes(fastify, opts) {
   const { prisma } = fastify;
@@ -10,6 +11,25 @@ async function supportRoutes(fastify, opts) {
    * Receives emails from Resend Inbound Parse
    */
   fastify.post("/webhook", async (request, reply) => {
+    // 1. Verify Signature
+    const secret = process.env.RESEND_WEBHOOK_SECRET;
+    if (secret) {
+      const headers = {
+        "svix-id": request.headers["svix-id"],
+        "svix-timestamp": request.headers["svix-timestamp"],
+        "svix-signature": request.headers["svix-signature"],
+      };
+
+      try {
+        const wh = new Webhook(secret);
+        // Resend sends webhooks as JSON, request.rawBody is already captured as string in server.js
+        wh.verify(request.rawBody, headers);
+      } catch (err) {
+        fastify.log.warn("Invalid Resend Webhook Signature");
+        return reply.badRequest("Invalid signature");
+      }
+    }
+
     const payload = request.body;
     
     // Resend Inbound payload: from, to, subject, text, html, etc.
