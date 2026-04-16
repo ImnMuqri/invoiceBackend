@@ -11,6 +11,8 @@ async function supportRoutes(fastify, opts) {
    * Receives emails from Resend Inbound Parse
    */
   fastify.post("/webhook", async (request, reply) => {
+    fastify.log.info({ headers: request.headers }, "Resend Webhook Headers");
+    
     // 1. Verify Signature
     const secret = process.env.RESEND_WEBHOOK_SECRET;
     if (secret) {
@@ -22,19 +24,22 @@ async function supportRoutes(fastify, opts) {
 
       try {
         const wh = new Webhook(secret);
-        // Resend sends webhooks as JSON, request.rawBody is already captured as string in server.js
         wh.verify(request.rawBody, headers);
+        fastify.log.info("Resend Webhook Signature Verified");
       } catch (err) {
-        fastify.log.warn("Invalid Resend Webhook Signature");
+        fastify.log.error({ err, headers }, "Invalid Resend Webhook Signature");
         return reply.badRequest("Invalid signature");
       }
     }
 
     const payload = request.body;
+    fastify.log.info({ payload }, "Resend Webhook Payload");
     
     // Resend Inbound payload: from, to, subject, text, html, etc.
-    const fromEmail = payload.from;
-    const fromName = payload.from_name || "";
+    const rawFrom = payload.from || "";
+    const fromEmail = rawFrom.match(/<([^>]+)>/)?.[1] || rawFrom;
+    const fromName = rawFrom.match(/^([^<]+)/)?.[1]?.trim() || "";
+    
     const subject = payload.subject || "No Subject";
     const content = payload.text || payload.html || "No Content";
     const resendId = payload.id; // Unique email ID from Resend
