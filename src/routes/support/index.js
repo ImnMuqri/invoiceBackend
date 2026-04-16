@@ -46,9 +46,9 @@ async function supportRoutes(fastify, opts) {
     // THE MISSING STEP: If this is an 'email.received' event, we only have metadata.
     // We must fetch the full email body using the email_id.
     if (payload.type === "email.received" && data.email_id) {
-      fastify.log.info({ email_id: data.email_id }, "Fetching full email body from Resend");
+      fastify.log.info({ email_id: data.email_id }, "Fetching full email body from Resend using Support Key");
       try {
-        const fullEmail = await resend.emails.get(data.email_id);
+        const fullEmail = await supportResend.emails.get(data.email_id);
         if (fullEmail.data) {
           data = fullEmail.data;
           fastify.log.info("Successfully retrieved full email body");
