@@ -11,8 +11,12 @@ async function transactionRoutes(fastify, opts) {
             select: {
               id: true,
               email: true,
-              name: true,
-              companyName: true,
+              profile: {
+                select: {
+                  name: true,
+                  companyName: true,
+                },
+              },
             },
           },
         },
