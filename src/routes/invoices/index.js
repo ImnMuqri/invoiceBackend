@@ -116,7 +116,39 @@ async function invoiceRoutes(fastify, opts) {
     });
 
     // POST create invoice
-    protectedInstance.post("/", async (request, reply) => {
+    protectedInstance.post("/", {
+      schema: {
+        body: {
+          type: "object",
+          required: ["clientId", "items"],
+          properties: {
+            clientId: { type: ["number", "string"] },
+            fromCompanyName: { type: "string" },
+            dueDate: { type: "string" },
+            issueDate: { type: "string" },
+            status: { type: "string" },
+            currency: { type: "string" },
+            notes: { type: "string" },
+            template: { type: "string" },
+            discountPercentage: { type: "number" },
+            taxRate: { type: "number" },
+            usedAi: { type: "boolean" },
+            items: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["name", "price", "quantity"],
+                properties: {
+                  name: { type: "string" },
+                  price: { type: "number" },
+                  quantity: { type: "number" },
+                },
+              },
+            },
+          },
+        },
+      },
+    }, async (request, reply) => {
       // Enforce usage limits BEFORE doing anything else
       try {
         await fastify.usage.checkAndIncrement(request.user.id, "invoice");
@@ -207,18 +239,58 @@ async function invoiceRoutes(fastify, opts) {
     });
 
     // PUT update invoice
-    protectedInstance.put("/:id", async (request, reply) => {
-      const id = Number(request.params.id);
-      const { markInvoiceAsPaid } = require("../../utils/invoiceUtils");
-      const {
-        clientId,
-        items,
-        invoiceNumber,
-        template,
-        fromCompanyName,
-        usedAi,
-        ...invoiceData
-      } = request.body;
+    protectedInstance.put(
+      "/:id",
+      {
+        schema: {
+          params: {
+            type: "object",
+            properties: {
+              id: { type: "integer" },
+            },
+          },
+          body: {
+            type: "object",
+            properties: {
+              clientId: { type: ["number", "string"] },
+              fromCompanyName: { type: "string" },
+              dueDate: { type: "string" },
+              issueDate: { type: "string" },
+              status: { type: "string" },
+              currency: { type: "string" },
+              notes: { type: "string" },
+              template: { type: "string" },
+              amountPaid: { type: "number" },
+              discountPercentage: { type: "number" },
+              taxRate: { type: "number" },
+              items: {
+                type: "array",
+                items: {
+                  type: "object",
+                  required: ["name", "price", "quantity"],
+                  properties: {
+                    name: { type: "string" },
+                    price: { type: "number" },
+                    quantity: { type: "number" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      async (request, reply) => {
+        const id = Number(request.params.id);
+        const { markInvoiceAsPaid } = require("../../utils/invoiceUtils");
+        const {
+          clientId,
+          items,
+          invoiceNumber,
+          template,
+          fromCompanyName,
+          usedAi,
+          ...invoiceData
+        } = request.body;
 
       // Handle AI usage increment if the builder was used in this session
       if (usedAi) {

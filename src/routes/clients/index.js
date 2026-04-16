@@ -56,12 +56,27 @@ async function clientRoutes(fastify, opts) {
   });
 
   // POST create client
-  fastify.post("/", async (request, reply) => {
-    const data = request.body;
-
-    if (!data.name || !data.email) {
-      return reply.badRequest("Name and Email are required");
-    }
+  fastify.post(
+    "/",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["name", "email"],
+          properties: {
+            name: { type: "string", minLength: 1 },
+            email: { type: "string", format: "email" },
+            phone: { type: "string" },
+            address: { type: "string" },
+            company: { type: "string" },
+            autoChaser: { type: "boolean" },
+            autoEmailChaser: { type: "boolean" },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const data = request.body;
 
     const email = data.email.trim().toLowerCase();
 
@@ -117,9 +132,33 @@ async function clientRoutes(fastify, opts) {
   });
 
   // PUT update client
-  fastify.put("/:id", async (request, reply) => {
-    const id = Number(request.params.id);
-    const body = request.body;
+  fastify.put(
+    "/:id",
+    {
+      schema: {
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "integer" },
+          },
+        },
+        body: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            email: { type: "string", format: "email" },
+            phone: { type: "string" },
+            address: { type: "string" },
+            company: { type: "string" },
+            autoChaser: { type: "boolean" },
+            autoEmailChaser: { type: "boolean" },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      const body = request.body;
 
     // Only allow these fields to be updated via this endpoint
     const allowedFields = [

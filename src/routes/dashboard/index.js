@@ -94,11 +94,11 @@ async function dashboardRoutes(fastify, opts) {
       const topClients = await Promise.all(
         topClientsRaw.map(async (raw) => {
           const client = await prisma.client.findUnique({
-            where: { id: raw.clientId },
+            where: { id: raw.clientId, userId: request.user.id },
           });
 
           const clientPaidInvoices = await prisma.invoice.findMany({
-            where: { clientId: raw.clientId, status: "Paid" },
+            where: { clientId: raw.clientId, userId: request.user.id, status: "Paid" },
           });
 
           const convertedRevenue = clientPaidInvoices.reduce((sum, inv) => {

@@ -28,7 +28,7 @@ async function whatsappRoutes(fastify, opts) {
         await fastify.usage.checkAndIncrement(request.user.id, "waSend");
 
         const invoice = await fastify.prisma.invoice.findUnique({
-          where: { id: parseInt(id) },
+          where: { id: parseInt(id), userId: request.user.id },
           include: {
             client: true,
           },
@@ -109,7 +109,7 @@ async function whatsappRoutes(fastify, opts) {
         await fastify.usage.checkAndIncrement(request.user.id, "waReminder");
 
         const invoice = await fastify.prisma.invoice.findUnique({
-          where: { id: parseInt(id) },
+          where: { id: parseInt(id), userId: request.user.id },
           include: {
             client: true,
           },

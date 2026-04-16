@@ -1,7 +1,27 @@
-const fastify = require("fastify")({ logger: true });
+const fastify = require("fastify")({
+  logger: true,
+  ajv: {
+    plugins: [require("ajv-formats")],
+  },
+});
 const path = require("path");
 const autoload = require("@fastify/autoload");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
+
+function validateEnv() {
+  const required = [
+    "DATABASE_URL",
+    "JWT_SECRET",
+    "FRONTEND_URL",
+    "GROQ_API_KEY",
+    "ENCRYPTION_KEY",
+  ];
+  const missing = required.filter((k) => !process.env[k]);
+  if (missing.length > 0) {
+    console.error(`❌ FATAL: Missing environment variables: ${missing.join(", ")}`);
+    process.exit(1);
+  }
+}
 
 async function build() {
   // Register Sensible
@@ -101,10 +121,24 @@ async function build() {
 
 const start = async () => {
   try {
+    validateEnv();
     const app = await build();
     const port = process.env.PORT || 3002;
     await app.listen({ port, host: "0.0.0.0" });
+
+    // Graceful Shutdown
+    const signals = ["SIGTERM", "SIGINT"];
+    signals.forEach((signal) => {
+      process.on(signal, async () => {
+        app.log.info(`Received ${signal}, closing server...`);
+        await app.close();
+        app.log.info("Server closed gradiently.");
+        process.exit(0);
+      });
+    });
   } catch (err) {
+    if (fastify.log) fastify.log.error(err);
+    else console.error(err);
     process.exit(1);
   }
 };
