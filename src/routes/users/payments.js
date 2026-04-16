@@ -16,25 +16,10 @@ async function paymentRoutes(fastify, opts) {
         isPreferred: true,
         collectionId: true,
         categoryCode: true,
-        apiKey: true,      // We'll check if exists
-        secretKey: true,   // We'll check if exists
-        xSignatureKey: true, // We'll check if exists
         createdAt: true,
       },
     });
-
-    const mapped = providers.map((p) => ({
-      ...p,
-      hasApiKey: !!p.apiKey,
-      hasSecretKey: !!p.secretKey,
-      hasXSignatureKey: !!p.xSignatureKey,
-      // Hide the actual encrypted strings from the list
-      apiKey: undefined,
-      secretKey: undefined,
-      xSignatureKey: undefined,
-    }));
-
-    return mapped;
+    return providers;
   });
 
   // POST connect/update provider
