@@ -315,6 +315,7 @@ async function invoiceRoutes(fastify, opts) {
         include: { items: true, client: true },
       });
 
+      if (invoiceData.status === "Partially Paid" && currentInvoice.status !== "Partially Paid") {
         await createNotification(fastify.prisma, request.user.id, "Partial Payment", `Partial payment received for invoice ${invoice.invoiceNumber || invoice.id} from ${invoice.client?.name}.`, "PARTIALLY_PAID");
       }
 
