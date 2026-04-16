@@ -37,7 +37,7 @@ async function aiRoutes(fastify, opts) {
     {
       config: {
         rateLimit: {
-          max: 10,
+          max: 20,
           timeWindow: "1 minute",
           errorResponseBuilder: (request, context) => ({
             statusCode: 429,
