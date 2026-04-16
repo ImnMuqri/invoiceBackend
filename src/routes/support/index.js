@@ -41,7 +41,24 @@ async function supportRoutes(fastify, opts) {
     fastify.log.info({ payload }, "Resend Webhook Full Payload");
     
     // Resend webhooks often wrap the email data in a 'data' property
-    const data = payload.data || payload;
+    let data = payload.data || payload;
+
+    // THE MISSING STEP: If this is an 'email.received' event, we only have metadata.
+    // We must fetch the full email body using the email_id.
+    if (payload.type === "email.received" && data.email_id) {
+      fastify.log.info({ email_id: data.email_id }, "Fetching full email body from Resend");
+      try {
+        const fullEmail = await resend.emails.get(data.email_id);
+        if (fullEmail.data) {
+          data = fullEmail.data;
+          fastify.log.info("Successfully retrieved full email body");
+        } else {
+          fastify.log.error({ error: fullEmail.error }, "Failed to fetch full email body");
+        }
+      } catch (err) {
+        fastify.log.error(err, "Error calling Resend Emails API");
+      }
+    }
 
     // Resend Inbound fields: from, to, subject, text, html, id
     // We check both payload and nested data to be safe
@@ -57,11 +74,14 @@ async function supportRoutes(fastify, opts) {
       fromName = rawFrom.name || "";
     }
     
+    // Fallback for array 'to'
+    const rawTo = Array.isArray(data.to) ? data.to[0] : (data.to || "");
+    
     const subject = data.subject || payload.subject || "No Subject";
     const textContent = data.text || payload.text || "";
     const htmlContent = data.html || payload.html || "";
     const content = textContent || htmlContent || "No Content";
-    const resendId = data.id || payload.id || data.resendId;
+    const resendId = data.email_id || data.id || payload.id;
 
     if (!fromEmail) {
       fastify.log.warn("Resend Webhook: fromEmail is empty, skipping ticket creation");
