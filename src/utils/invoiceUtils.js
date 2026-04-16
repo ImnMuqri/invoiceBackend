@@ -74,6 +74,62 @@ async function markInvoiceAsPaid(prisma, invoiceId, amountPaid = null) {
   return updatedInvoice;
 }
 
+/**
+ * Handle payment failure (e.g., from webhooks)
+ */
+async function handlePaymentFailure(prisma, invoiceId, reason = "") {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: parseInt(invoiceId) },
+    include: { client: true },
+  });
+
+  if (!invoice) return;
+
+  // Notify the user about the failure
+  await createNotification(
+    prisma,
+    invoice.userId,
+    "Payment Failed",
+    `A payment attempt for Invoice ${invoice.invoiceNumber || invoice.id} (${invoice.client.name}) has failed.${reason ? ` Reason: ${reason}` : ""}`,
+    "PAYMENT_FAILED",
+  );
+}
+
+/**
+ * Check if an invoice is overdue and trigger a notification if so.
+ */
+async function checkAndNotifyOverdue(prisma, invoiceId) {
+  const now = new Date();
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: parseInt(invoiceId) },
+    include: { client: true },
+  });
+
+  if (
+    invoice &&
+    invoice.status === "Pending" &&
+    invoice.dueDate &&
+    new Date(invoice.dueDate) < now
+  ) {
+    // 1. Update status to Overdue if it was Pending
+    await prisma.invoice.update({
+      where: { id: invoice.id },
+      data: { status: "Overdue" },
+    });
+
+    // 2. Notify the owner
+    await createNotification(
+      prisma,
+      invoice.userId,
+      "Invoice Overdue",
+      `Invoice ${invoice.invoiceNumber || invoice.id} for ${invoice.client.name} is now overdue.`,
+      "OVERDUE",
+    );
+  }
+}
+
 module.exports = {
   markInvoiceAsPaid,
+  handlePaymentFailure,
+  checkAndNotifyOverdue,
 };

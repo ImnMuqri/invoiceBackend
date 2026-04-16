@@ -1,7 +1,7 @@
 const { decrypt } = require("../../utils/encryption");
 const ToyyibPay = require("../../utils/gateways/toyyibpay");
 const Billplz = require("../../utils/gateways/billplz");
-const { markInvoiceAsPaid } = require("../../utils/invoiceUtils");
+const { markInvoiceAsPaid, handlePaymentFailure } = require("../../utils/invoiceUtils");
 
 async function payRoutes(fastify, opts) {
   const { prisma } = fastify;
@@ -232,16 +232,23 @@ async function payRoutes(fastify, opts) {
       "ToyyibPay Webhook Received",
     );
 
-    // status 1 = success
+    // status 1 = success, 3 = failed, 2 = pending
     if (status === "1") {
       const invoiceId = parseInt(order_id);
       if (!isNaN(invoiceId)) {
-        // Optional: Call ToyyibPay API to verify the transaction details for extra security
-        // Optional: Call ToyyibPay API to verify the transaction details for extra security
         await markInvoiceAsPaid(prisma, invoiceId);
         fastify.log.info(
           { invoiceId },
           "Invoice marked as PAID via ToyyibPay Webhook",
+        );
+      }
+    } else if (status === "3") {
+      const invoiceId = parseInt(order_id);
+      if (!isNaN(invoiceId)) {
+        await handlePaymentFailure(prisma, invoiceId, reason || "Payment failed");
+        fastify.log.info(
+          { invoiceId, reason },
+          "Invoice payment FAILED via ToyyibPay Webhook",
         );
       }
     }
@@ -312,6 +319,15 @@ async function payRoutes(fastify, opts) {
         );
       } catch (err) {
         fastify.log.error(err, "Error processing Billplz webhook");
+      }
+    } else {
+      const invoiceId = parseInt(reference_1);
+      if (!isNaN(invoiceId)) {
+        await handlePaymentFailure(prisma, invoiceId, "Transaction was not successful or was cancelled.");
+        fastify.log.info(
+          { invoiceId },
+          "Invoice payment FAILED via Billplz Webhook",
+        );
       }
     }
 

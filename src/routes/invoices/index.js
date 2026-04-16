@@ -1,6 +1,7 @@
 async function invoiceRoutes(fastify, opts) {
   const { prisma } = fastify;
   const { createNotification } = require("../../utils/notificationUtils");
+  const { checkAndNotifyOverdue } = require("../../utils/invoiceUtils");
 
   // PUBLIC ROUTES (No Auth Required)
   // GET invoice by ID (Public for payment page)
@@ -198,6 +199,9 @@ async function invoiceRoutes(fastify, opts) {
       });
 
       const updatedInvoice = invoice; // No need for second update now
+      
+      // Check if immediately overdue
+      await checkAndNotifyOverdue(prisma, updatedInvoice.id);
 
       return { ...updatedInvoice, message: "Invoice created successfully" };
     });
@@ -311,9 +315,11 @@ async function invoiceRoutes(fastify, opts) {
         include: { items: true, client: true },
       });
 
-      if (invoiceData.status === "Partially Paid" && currentInvoice.status !== "Partially Paid") {
         await createNotification(fastify.prisma, request.user.id, "Partial Payment", `Partial payment received for invoice ${invoice.invoiceNumber || invoice.id} from ${invoice.client?.name}.`, "PARTIALLY_PAID");
       }
+
+      // Check if immediately overdue after update
+      await checkAndNotifyOverdue(prisma, id);
 
       return { ...invoice, message: "Invoice updated successfully" };
     });
