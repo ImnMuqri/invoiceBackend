@@ -51,6 +51,7 @@ model User {
   invoices             Invoice[]
   paymentProviders     PaymentProvider[]
   subscriptions        Subscription[]
+  notifications        AppNotification[]
 }
 
 // ─────────────────────────────────────────────
@@ -213,6 +214,7 @@ model Invoice {
   date                     DateTime      @default(now())
   dueDate                  DateTime
   amount                   Float
+  amountPaid               Float         @default(0.0)
   status                   String        @default("Pending")
   currency                 String        @default("MYR")
   latePrediction           String?
@@ -310,4 +312,19 @@ model SystemConfiguration {
   globalNotice           String?
   maintenanceMode        Boolean  @default(false)
   updatedAt              DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// AppNotification — In-app user notifications
+// ─────────────────────────────────────────────
+model AppNotification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   // 'EMAIL_SENT', 'WHATSAPP_SENT', 'CLIENT_PAID', 'PARTIALLY_PAID', 'OVERDUE'
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

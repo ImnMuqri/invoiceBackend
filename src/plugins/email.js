@@ -22,7 +22,7 @@ async function emailPlugin(fastify, opts) {
         );
       }
       const { data, error } = await resend.emails.send({
-        from: "InvoKita <invo@invokita.bsyx.com>", // Default for unverified domains
+        from: "InvoKita <invo@invokita.my>", // Default for unverified domains
         to,
         subject,
         html,

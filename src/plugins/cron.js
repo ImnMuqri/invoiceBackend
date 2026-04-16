@@ -1,5 +1,6 @@
 const fp = require("fastify-plugin");
 const cron = require("node-cron");
+const { createNotification } = require("../utils/notificationUtils");
 
 async function cronPlugin(fastify, opts) {
   // Function to process reminders
@@ -168,6 +169,9 @@ async function cronPlugin(fastify, opts) {
         data: { emailLastReminderSent: new Date() },
       });
 
+      // Notify App
+      await createNotification(fastify.prisma, user.id, "Email Sent", `Automated email reminder sent to ${invoice.client.name} for invoice ${invoice.invoiceNumber || invoice.id}.`, "EMAIL_SENT");
+
       fastify.log.info(
         `Auto Email Reminder sent for Invoice #${invoice.invoiceNumber}`,
       );
@@ -225,6 +229,10 @@ async function cronPlugin(fastify, opts) {
           whatsappStatus: "Sent Reminder",
         },
       });
+      
+      // Notify App
+      await createNotification(fastify.prisma, user.id, "WhatsApp Sent", `Automated WhatsApp reminder sent to ${invoice.client.name} for invoice ${invoice.invoiceNumber || invoice.id}.`, "WHATSAPP_SENT");
+
       fastify.log.info(
         `Auto WA Reminder sent for Invoice #${invoice.invoiceNumber}`,
       );
@@ -238,17 +246,30 @@ async function cronPlugin(fastify, opts) {
     fastify.log.info("Starting automated overdue status update...");
     try {
       const now = new Date();
-      const result = await fastify.prisma.invoice.updateMany({
+      const overdueInvoices = await fastify.prisma.invoice.findMany({
         where: {
-          status: "Pending",
+          status: { in: ["Pending", "Partially Paid"] },
           dueDate: { lt: now },
         },
-        data: {
-          status: "Overdue",
-        },
+        include: { client: true },
       });
-      if (result.count > 0) {
-        fastify.log.info(`Updated ${result.count} invoices to Overdue status.`);
+
+      if (overdueInvoices.length > 0) {
+        await fastify.prisma.invoice.updateMany({
+          where: {
+            id: { in: overdueInvoices.map(inv => inv.id) }
+          },
+          data: {
+            status: "Overdue",
+          },
+        });
+
+        // Notify App for each overdue invoice
+        for (const inv of overdueInvoices) {
+          await createNotification(fastify.prisma, inv.userId, "Invoice Overdue", `Invoice ${inv.invoiceNumber || inv.id} for ${inv.client?.name || "client"} is now overdue.`, "OVERDUE");
+        }
+
+        fastify.log.info(`Updated ${overdueInvoices.length} invoices to Overdue status.`);
       }
     } catch (error) {
       fastify.log.error("Error in overdue update job: " + error.message);

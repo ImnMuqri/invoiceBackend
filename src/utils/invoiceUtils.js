@@ -1,7 +1,9 @@
+const { createNotification } = require("./notificationUtils");
+
 /**
  * Centralized utility for marking an invoice as paid and updating relevant metrics.
  */
-async function markInvoiceAsPaid(prisma, invoiceId) {
+async function markInvoiceAsPaid(prisma, invoiceId, amountPaid = null) {
   const now = new Date();
 
   // 1. Fetch the invoice with client data
@@ -14,14 +16,25 @@ async function markInvoiceAsPaid(prisma, invoiceId) {
   if (invoice.status === "Paid") return invoice;
 
   // 2. Mark the invoice as paid
+  const updateData = {
+    status: "Paid",
+    paidAt: now,
+  };
+  
+  if (amountPaid !== null) {
+    updateData.amountPaid = amountPaid;
+  } else if (invoice.amount) {
+    updateData.amountPaid = invoice.amount;
+  }
+
   const updatedInvoice = await prisma.invoice.update({
     where: { id: invoiceId },
-    data: {
-      status: "Paid",
-      paidAt: now,
-    },
+    data: updateData,
     include: { client: true },
   });
+
+  // Notify App
+  await createNotification(prisma, invoice.userId, "Invoice Paid", `Invoice ${invoice.invoiceNumber || invoice.id} for ${invoice.client.name} has been marked as fully paid.`, "CLIENT_PAID");
 
   // 3. Recalculate client-wide metrics
   // Fetch all paid invoices for this client to get a true historical average

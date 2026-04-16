@@ -1,5 +1,6 @@
 async function invoiceRoutes(fastify, opts) {
   const { prisma } = fastify;
+  const { createNotification } = require("../../utils/notificationUtils");
 
   // PUBLIC ROUTES (No Auth Required)
   // GET invoice by ID (Public for payment page)
@@ -231,24 +232,46 @@ async function invoiceRoutes(fastify, opts) {
         template: template || "professional",
       };
 
-      // If status is being updated to "Paid" manually, use the utility to update metrics
-      if (invoiceData.status === "Paid") {
-        await markInvoiceAsPaid(prisma, id);
-        // Remove status from updateData to avoid double-updating or overriding paidAt later
-        delete updateData.status;
-      }
+      // 1. First fetch current invoice to know existing amount/status
+      const currentInvoice = await prisma.invoice.findUnique({ where: { id } });
 
-      // Only handle amount if explicitly provided or items changed
+      // 2. Only handle amount if explicitly provided or items changed
+      let newTotalAmount = currentInvoice.amount;
       if (request.body.amount !== undefined) {
         updateData.amount = request.body.amount;
+        newTotalAmount = request.body.amount;
       } else if (items && items.length > 0) {
-        updateData.amount = items.reduce(
+        newTotalAmount = items.reduce(
           (sum, item) => sum + item.price * item.quantity,
           0,
         );
+        updateData.amount = newTotalAmount;
       }
 
-      // Calculate late prediction for updates as well
+      // Handle amountPaid specifically
+      if (request.body.amountPaid !== undefined) {
+        updateData.amountPaid = request.body.amountPaid;
+        if (updateData.amountPaid >= newTotalAmount) {
+          invoiceData.status = "Paid";
+        } else if (updateData.amountPaid > 0) {
+          invoiceData.status = "Partially Paid";
+          updateData.status = "Partially Paid";
+        } else {
+          invoiceData.status = "Pending";
+          updateData.status = "Pending";
+        }
+      }
+
+      // If status is being updated to "Paid" manually or via partial payment, use the utility to update metrics
+      if (invoiceData.status === "Paid" && currentInvoice.status !== "Paid") {
+        await markInvoiceAsPaid(prisma, id, updateData.amountPaid >= newTotalAmount ? updateData.amountPaid : undefined);
+        // Remove status from updateData to avoid double-updating or overriding paidAt later
+        delete updateData.status;
+      } else if (invoiceData.status && invoiceData.status !== "Paid") {
+        updateData.status = invoiceData.status;
+      }
+
+
       const currentClientId = clientId ? Number(clientId) : null;
       if (currentClientId) {
         const client = await prisma.client.findUnique({
@@ -287,6 +310,10 @@ async function invoiceRoutes(fastify, opts) {
         data: updateData,
         include: { items: true, client: true },
       });
+
+      if (invoiceData.status === "Partially Paid" && currentInvoice.status !== "Partially Paid") {
+        await createNotification(fastify.prisma, request.user.id, "Partial Payment", `Partial payment received for invoice ${invoice.invoiceNumber || invoice.id} from ${invoice.client?.name}.`, "PARTIALLY_PAID");
+      }
 
       return { ...invoice, message: "Invoice updated successfully" };
     });
@@ -424,6 +451,9 @@ async function invoiceRoutes(fastify, opts) {
             data: { emailLastSent: new Date() },
           });
 
+          // Notify App
+          await createNotification(fastify.prisma, request.user.id, "Email Sent", `Invoice email sent to ${invoice.client.name} for invoice ${invoice.invoiceNumber || invoice.id}.`, "EMAIL_SENT");
+
           return {
             success: true,
             message: isReminder ? "Reminder email sent" : "Email sent",
@@ -466,6 +496,9 @@ async function invoiceRoutes(fastify, opts) {
           where: { id },
           data: { whatsappLastSent: new Date() },
         });
+
+        // Notify App
+        await createNotification(fastify.prisma, request.user.id, "WhatsApp Sent", `WhatsApp message prepared for ${invoice.client.name} for invoice ${invoice.invoiceNumber || invoice.id}.`, "WHATSAPP_SENT");
 
         const waLink = `https://wa.me/${invoice.client.phone?.replace(/\D/g, "")}?text=${text}`;
         return { success: true, waLink };
