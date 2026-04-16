@@ -52,6 +52,7 @@ model User {
   paymentProviders     PaymentProvider[]
   subscriptions        Subscription[]
   notifications        AppNotification[]
+  tickets              Ticket[]
 }
 
 // ─────────────────────────────────────────────
@@ -327,6 +328,38 @@ model AppNotification {
   message   String
   type      String   // 'EMAIL_SENT', 'WHATSAPP_SENT', 'CLIENT_PAID', 'PARTIALLY_PAID', 'OVERDUE'
   isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// Support Ticket System
+// ─────────────────────────────────────────────
+model Ticket {
+  id        Int             @id @default(autoincrement())
+  resendId  String?         @unique // Id from Resend Inbound (for replies/threading)
+  subject   String
+  fromEmail String
+  fromName  String?
+  status    String          @default("OPEN") // OPEN, PENDING, CLOSED
+  priority  String          @default("MEDIUM") // LOW, MEDIUM, HIGH
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  // Conversation history
+  messages  TicketMessage[]
+
+  // Link to user if email matches
+  userId    Int?
+  user      User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model TicketMessage {
+  id        Int      @id @default(autoincrement())
+  ticketId  Int
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender    String   // "ADMIN" or "USER"
+  content   String   @db.Text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
