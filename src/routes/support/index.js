@@ -48,7 +48,8 @@ async function supportRoutes(fastify, opts) {
     if (payload.type === "email.received" && data.email_id) {
       fastify.log.info({ email_id: data.email_id }, "Fetching full email body from Resend using Support Key");
       try {
-        const fullEmail = await supportResend.emails.get(data.email_id);
+        // Use .receiving.get() for inbound emails, not .emails.get()
+        const fullEmail = await supportResend.emails.receiving.get(data.email_id);
         
         // DEEP AUDIT: Log everything about the response structure
         fastify.log.info({ 
@@ -65,10 +66,10 @@ async function supportRoutes(fastify, opts) {
             hasHtml: !!data.html 
           }, "Successfully retrieved full email body");
         } else {
-          fastify.log.error({ error: fullEmail.error }, "Failed to fetch full email body");
+          fastify.log.error({ error: fullEmail.error }, "Failed to fetch full email body from Resend");
         }
       } catch (err) {
-        fastify.log.error({ err: err.message, stack: err.stack }, "Error calling Resend Emails API");
+        fastify.log.error({ err: err.message, stack: err.stack }, "Error calling Resend Receiving API");
       }
     }
 
