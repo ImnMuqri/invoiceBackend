@@ -124,6 +124,7 @@ async function invoiceRoutes(fastify, opts) {
           properties: {
             clientId: { type: ["number", "string"] },
             fromCompanyName: { type: "string" },
+            fromPhone: { type: "string" },
             dueDate: { type: "string" },
             issueDate: { type: "string" },
             status: { type: "string" },
@@ -162,6 +163,7 @@ async function invoiceRoutes(fastify, opts) {
         items,
         template,
         fromCompanyName,
+        fromPhone,
         usedAi,
         ...invoiceData
       } = request.body;
@@ -213,6 +215,7 @@ async function invoiceRoutes(fastify, opts) {
         data: {
           ...invoiceData,
           fromCompanyName,
+          fromPhone,
           amount,
           latePrediction,
           userInvoiceNumber: nextNumber,
@@ -254,6 +257,7 @@ async function invoiceRoutes(fastify, opts) {
             properties: {
               clientId: { type: ["number", "string"] },
               fromCompanyName: { type: "string" },
+              fromPhone: { type: "string" },
               dueDate: { type: "string" },
               issueDate: { type: "string" },
               status: { type: "string" },
@@ -288,6 +292,7 @@ async function invoiceRoutes(fastify, opts) {
           invoiceNumber,
           template,
           fromCompanyName,
+          fromPhone,
           usedAi,
           ...invoiceData
         } = request.body;
@@ -305,6 +310,7 @@ async function invoiceRoutes(fastify, opts) {
       const updateData = {
         ...invoiceData,
         fromCompanyName,
+        fromPhone,
         template: template || "professional",
       };
 

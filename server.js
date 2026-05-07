@@ -27,6 +27,30 @@ async function build() {
   // Register Sensible
   await fastify.register(require("@fastify/sensible"));
 
+  // Register Multipart
+  await fastify.register(require("@fastify/multipart"), {
+    limits: {
+      fieldNameSize: 100, // Max field name size in bytes
+      fieldSize: 100, // Max field value size in bytes
+      fields: 10, // Max number of non-file fields
+      fileSize: 5000000, // For multipart forms, the max file size in bytes
+      files: 1, // Max number of file fields
+      headerPairs: 2000, // Max number of header key=>value pairs
+    },
+  });
+
+  // Register Static for uploads
+  const fs = require("fs");
+  const uploadDir = path.join(__dirname, "public/uploads");
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+
+  await fastify.register(require("@fastify/static"), {
+    root: path.join(__dirname, "public"),
+    prefix: "/public/", // optional: default '/'
+  });
+
   // Register CORS
   await fastify.register(require("@fastify/cors"), {
     origin: [

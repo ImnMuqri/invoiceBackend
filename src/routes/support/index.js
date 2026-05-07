@@ -165,6 +165,119 @@ async function supportRoutes(fastify, opts) {
   });
 
   /**
+   * USER ROUTES (Requires Authentication)
+   */
+  fastify.register(async (userRoutes) => {
+    userRoutes.addHook("onRequest", fastify.authenticate);
+
+    // List my tickets
+    userRoutes.get("/my", async (request, reply) => {
+      const tickets = await prisma.ticket.findMany({
+        where: { userId: request.user.id },
+        include: {
+          _count: {
+            select: { messages: true }
+          }
+        },
+        orderBy: { updatedAt: "desc" }
+      });
+      return tickets;
+    });
+
+    // Get my single ticket
+    userRoutes.get("/my/:id", async (request, reply) => {
+      const { id } = request.params;
+      const ticket = await prisma.ticket.findUnique({
+        where: { id: parseInt(id), userId: request.user.id },
+        include: {
+          messages: {
+            orderBy: { createdAt: "asc" }
+          }
+        }
+      });
+      if (!ticket) return reply.notFound("Ticket not found");
+      return ticket;
+    });
+
+    // Create new ticket
+    userRoutes.post("/my", async (request, reply) => {
+      const { subject, content } = request.body;
+      const user = await prisma.user.findUnique({
+        where: { id: request.user.id },
+        select: { email: true, profile: { select: { name: true } } }
+      });
+
+      try {
+        const ticket = await prisma.ticket.create({
+          data: {
+            subject,
+            fromEmail: user.email,
+            fromName: user.profile?.name || user.email,
+            status: "OPEN",
+            userId: user.id,
+            messages: {
+              create: {
+                sender: "USER",
+                content
+              }
+            }
+          }
+        });
+
+        // NOTIFY ADMIN
+        const admins = await prisma.user.findMany({ where: { role: "ADMIN" } });
+        for (const admin of admins) {
+          await prisma.appNotification.create({
+            data: {
+              userId: admin.id,
+              title: "New Support Ticket",
+              message: `New ticket from ${user.email}: ${subject}`,
+              type: "SUPPORT_TICKET"
+            }
+          });
+        }
+
+        return ticket;
+      } catch (err) {
+        fastify.log.error(err, "Error creating ticket");
+        return reply.internalServerError("Failed to create ticket");
+      }
+    });
+
+    // Reply to my ticket
+    userRoutes.post("/my/:id/reply", async (request, reply) => {
+      const { id } = request.params;
+      const { content } = request.body;
+
+      const ticket = await prisma.ticket.findUnique({
+        where: { id: parseInt(id), userId: request.user.id }
+      });
+
+      if (!ticket) return reply.notFound("Ticket not found");
+
+      try {
+        const message = await prisma.ticketMessage.create({
+          data: {
+            ticketId: ticket.id,
+            sender: "USER",
+            content
+          }
+        });
+
+        await prisma.ticket.update({
+          where: { id: ticket.id },
+          data: { status: "OPEN", updatedAt: new Date() }
+        });
+
+        return message;
+      } catch (err) {
+        fastify.log.error(err, "Error replying to ticket");
+        return reply.internalServerError("Failed to send reply");
+      }
+    });
+  });
+
+  /**
    * ADMIN ROUTES (Requires Authentication)
    */
   fastify.register(async (adminRoutes) => {

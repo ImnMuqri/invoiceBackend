@@ -28,6 +28,7 @@ async function userRoutes(fastify, opts) {
             companyEmail: true,
             companyPhone: true,
             address: true,
+            logoUrl: true,
           },
         },
         quota: {
@@ -67,6 +68,7 @@ async function userRoutes(fastify, opts) {
       companyEmail: profile?.companyEmail,
       companyPhone: profile?.companyPhone,
       address: profile?.address,
+      logoUrl: profile?.logoUrl,
       // Quota counters (dashboard bars)
       waSendsUsed: quota?.waSendsUsed ?? 0,
       emailSendsUsed: quota?.emailSendsUsed ?? 0,
@@ -141,6 +143,7 @@ async function userRoutes(fastify, opts) {
       companyEmail: profile?.companyEmail,
       companyPhone: profile?.companyPhone,
       address: profile?.address,
+      logoUrl: profile?.logoUrl,
       defaultCurrency: profile?.defaultCurrency ?? "MYR",
       invoicePrefix: invoiceConfig?.invoicePrefix ?? "INV",
       defaultTaxRate: invoiceConfig?.defaultTaxRate ?? 0,
@@ -265,6 +268,31 @@ async function userRoutes(fastify, opts) {
         "Failed to create Xendit subscription: " + (err.response?.data?.message || err.message),
       );
     }
+  });
+
+  // POST change password
+  fastify.post("/change-password", async (request, reply) => {
+    const { oldPassword, newPassword } = request.body;
+    const bcrypt = require("bcryptjs");
+
+    const user = await prisma.user.findUnique({
+      where: { id: request.user.id },
+    });
+
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isMatch) {
+      return reply.badRequest("Current password incorrect");
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    await prisma.user.update({
+      where: { id: request.user.id },
+      data: { password: hashedPassword },
+    });
+
+    return { status: "success", message: "Password updated successfully" };
   });
 
   fastify.register(require("./settings"), { prefix: "/settings" });

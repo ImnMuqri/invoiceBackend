@@ -70,6 +70,7 @@ model UserProfile {
   companyEmail    String?
   companyPhone    String?
   address         String?
+  logoUrl         String?
   defaultCurrency String   @default("MYR")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -213,6 +214,7 @@ model Invoice {
   fromName                 String?
   fromCompanyName          String?
   fromEmail                String?
+  fromPhone                String?
   fromAddress              String?
   date                     DateTime      @default(now())
   dueDate                  DateTime
