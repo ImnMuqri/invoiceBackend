@@ -31,94 +31,118 @@ async function dashboardRoutes(fastify, opts) {
       const targetCurrency = user.profile?.defaultCurrency || "MYR";
       const plan = user.plan || "FREE";
 
-      // Fetch all relevant invoices for manual summation with conversion
-      const allInvoices = await prisma.invoice.findMany({
-        where: { kind: "INVOICE", userId: request.user.id },
-      });
-
-      const totalRevenue = allInvoices
-        .filter((inv) => inv.status === "Paid")
-        .reduce((sum, inv) => {
-          return sum + convertAmount(inv.amount, inv.currency, targetCurrency);
-        }, 0);
-
-      const outstandingAmount = allInvoices
-        .filter((inv) => ["Pending", "Overdue"].includes(inv.status))
-        .reduce((sum, inv) => {
-          return sum + convertAmount(inv.amount, inv.currency, targetCurrency);
-        }, 0);
-
-      const overdueCount = await prisma.invoice.count({
-        where: {
-          kind: "INVOICE",
-          userId: request.user.id,
-          OR: [
-            { status: "Overdue" },
-            {
-              status: "Pending",
-              dueDate: { lt: now },
-            },
-          ],
-        },
-      });
-
-      const activeClientsCount = await prisma.client.count({
-        where: { userId: request.user.id },
-      });
-
-      const recentInvoices = await prisma.invoice.findMany({
-        where: { kind: "INVOICE", userId: request.user.id },
-        take: 5,
-        orderBy: { date: "desc" },
-        include: { client: true },
-      });
-
       const { rank = "top5" } = request.query;
 
-      const topClientsRaw = await prisma.invoice.groupBy({
-        by: ["clientId"],
-        where: {
-          kind: "INVOICE",
-          userId: request.user.id,
-          status: "Paid",
-        },
-        _sum: {
-          amount: true,
-        },
-        orderBy: {
-          _sum: {
-            amount: rank === "bottom5" ? "asc" : "desc",
-          },
-        },
-        take: plan === "FREE" ? 1 : 5,
+      /* One round trip instead of five.
+         These queries do not depend on each other, but they were awaited one
+         after another — and on Railway the app and the database are separate
+         services, so each await is a full network round trip. The page now
+         waits for the slowest rather than the sum.
+
+         The totals query is a groupBy rather than a findMany for the same
+         reason — see the comment on it below. */
+      const [invoiceTotals, overdueCount, activeClientsCount, recentInvoices, topClientsRaw] =
+        await Promise.all([
+          /* Sum in the database, not in Node.
+             This used to transfer every invoice the user has ever raised in
+             order to add up two subsets. Grouping by (status, currency) returns
+             a handful of rows no matter how many invoices there are — the
+             currency split is what makes it possible to still convert in JS,
+             because each subtotal is already in a single currency. */
+          prisma.invoice.groupBy({
+            by: ["status", "currency"],
+            where: { kind: "INVOICE", userId: request.user.id },
+            _sum: { amount: true },
+          }),
+          prisma.invoice.count({
+            where: {
+              kind: "INVOICE",
+              userId: request.user.id,
+              OR: [{ status: "Overdue" }, { status: "Pending", dueDate: { lt: now } }],
+            },
+          }),
+          prisma.client.count({ where: { userId: request.user.id } }),
+          prisma.invoice.findMany({
+            where: { kind: "INVOICE", userId: request.user.id },
+            take: 5,
+            orderBy: { date: "desc" },
+            include: { client: true },
+          }),
+          prisma.invoice.groupBy({
+            by: ["clientId"],
+            where: { kind: "INVOICE", userId: request.user.id, status: "Paid" },
+            _sum: { amount: true },
+            orderBy: { _sum: { amount: rank === "bottom5" ? "asc" : "desc" } },
+            take: plan === "FREE" ? 1 : 5,
+          }),
+        ]);
+
+      const sumWhere = (statuses) =>
+        invoiceTotals
+          .filter((row) => statuses.includes(row.status))
+          .reduce(
+            (sum, row) =>
+              sum + convertAmount(row._sum.amount || 0, row.currency, targetCurrency),
+            0,
+          );
+
+      const totalRevenue = sumWhere(["Paid"]);
+      const outstandingAmount = sumWhere(["Pending", "Overdue"]);
+
+      /* Two queries, not 1 + 2N.
+         This used to loop the top clients and, for each, run a findUnique AND
+         pull every paid invoice they have ever had — 11 round trips for five
+         clients, re-reading the full payment history on every dashboard load.
+         Both are now single batched queries over the same id set. */
+      const topClientIds = topClientsRaw.map((r) => r.clientId).filter(Boolean);
+
+      const [topClientRecords, topClientInvoices] = await Promise.all([
+        topClientIds.length
+          ? prisma.client.findMany({
+              where: { id: { in: topClientIds }, userId: request.user.id },
+              select: {
+                id: true,
+                name: true,
+                profitMargin: true,
+                averageDelayDays: true,
+                status: true,
+              },
+            })
+          : [],
+        topClientIds.length
+          ? prisma.invoice.findMany({
+              where: {
+                kind: "INVOICE",
+                clientId: { in: topClientIds },
+                userId: request.user.id,
+                status: "Paid",
+              },
+              select: { clientId: true, amount: true, currency: true },
+            })
+          : [],
+      ]);
+
+      const clientById = new Map(topClientRecords.map((c) => [c.id, c]));
+      const revenueByClient = new Map();
+      for (const inv of topClientInvoices) {
+        revenueByClient.set(
+          inv.clientId,
+          (revenueByClient.get(inv.clientId) || 0) +
+            convertAmount(inv.amount, inv.currency, targetCurrency),
+        );
+      }
+
+      const topClients = topClientsRaw.map((raw) => {
+        const client = clientById.get(raw.clientId);
+        return {
+          id: client?.id || raw.clientId,
+          name: client?.name || "Deleted Client",
+          totalRevenue: revenueByClient.get(raw.clientId) || 0,
+          profitMargin: client?.profitMargin || 25,
+          averageDelayDays: client?.averageDelayDays || 0,
+          status: client?.status || "Active",
+        };
       });
-
-      const topClients = await Promise.all(
-        topClientsRaw.map(async (raw) => {
-          const client = await prisma.client.findUnique({
-            where: { id: raw.clientId, userId: request.user.id },
-          });
-
-          const clientPaidInvoices = await prisma.invoice.findMany({
-            where: { kind: "INVOICE", clientId: raw.clientId, userId: request.user.id, status: "Paid" },
-          });
-
-          const convertedRevenue = clientPaidInvoices.reduce((sum, inv) => {
-            return (
-              sum + convertAmount(inv.amount, inv.currency, targetCurrency)
-            );
-          }, 0);
-
-          return {
-            id: client?.id || raw.clientId,
-            name: client?.name || "Deleted Client",
-            totalRevenue: convertedRevenue,
-            profitMargin: client?.profitMargin || 25,
-            averageDelayDays: client?.averageDelayDays || 0,
-            status: client?.status || "Active",
-          };
-        }),
-      );
 
       // Fetch overdue invoices for AI context
       const overdueInvoicesContext = await prisma.invoice.findMany({
@@ -191,7 +215,7 @@ async function dashboardRoutes(fastify, opts) {
       }
 
       // Usage Limits Helper (Dynamic from DB)
-      const allPlans = await prisma.plan.findMany();
+      const allPlans = await fastify.getPlans();
       const planLimits = allPlans.reduce((acc, p) => {
         acc[p.name] = {
           waSends: p.waSends,
@@ -204,20 +228,8 @@ async function dashboardRoutes(fastify, opts) {
         return acc;
       }, {});
 
-      // Fetch global system configuration
-      let systemConfig = await prisma.systemConfiguration.findFirst();
-      if (!systemConfig) {
-        systemConfig = await prisma.systemConfiguration.create({
-          data: {
-            whatsappEnabled: true,
-            emailEnabled: true,
-            invoiceCreationEnabled: true,
-            paymentsEnabled: true,
-            globalNotice: null,
-            maintenanceMode: false,
-          }
-        });
-      }
+      // Cached; see the prisma plugin for the TTL and why.
+      const systemConfig = await fastify.getSystemConfig();
 
       return {
         stats: {

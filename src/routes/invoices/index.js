@@ -1,3 +1,4 @@
+const { verifyRenderToken, createRenderToken } = require("../../utils/renderToken");
 async function invoiceRoutes(fastify, opts) {
   const { prisma } = fastify;
   const { createNotification } = require("../../utils/notificationUtils");
@@ -7,8 +8,49 @@ async function invoiceRoutes(fastify, opts) {
 
   // PUBLIC ROUTES (No Auth Required)
   // GET invoice by ID (Public for payment page)
+  /**
+   * One invoice, in full.
+   *
+   * This route sat OUTSIDE the authenticated sub-plugin below — public, with no
+   * ownership check, on a sequential integer id. It returns the client's name,
+   * email and address, the sender's company details, every line item, and the
+   * manual-payment block: bank name, account number, account holder and DuitNow
+   * QR. Walking `/api/invoices/1,2,3...` read every invoice in the database.
+   *
+   * It was public because the PDF pipeline needs it: the backend prints by
+   * pointing Puppeteer at the frontend's /invoices/:id/export page, and a
+   * headless browser has no session. So the fix is not simply to protect it —
+   * that breaks every PDF — but to accept exactly two kinds of caller:
+   *
+   *   1. the signed-in owner of the invoice, or
+   *   2. a render token this backend minted for this specific invoice, valid
+   *      for two minutes (see utils/renderToken.js).
+   *
+   * Anything else gets a 404, not a 403: whether an invoice id exists is itself
+   * something a stranger should not be able to probe.
+   */
   fastify.get("/:id", async (request, reply) => {
     const id = Number(request.params.id);
+    if (!Number.isInteger(id)) return reply.notFound("Invoice not found");
+
+    const token =
+      request.query?.renderToken || request.headers["x-render-token"] || null;
+    const hasRenderToken = token ? verifyRenderToken(id, token) : false;
+
+    /* No token means this has to be a session, and it has to own the row.
+       jwtVerify is called manually rather than via the onRequest hook because
+       the render-token path must be allowed to skip it. */
+    let userId = null;
+    if (!hasRenderToken) {
+      try {
+        const decoded = await request.jwtVerify();
+        userId = decoded?.id ?? null;
+      } catch {
+        return reply.notFound("Invoice not found");
+      }
+      if (!userId) return reply.notFound("Invoice not found");
+    }
+
     const invoice = await prisma.invoice.findUnique({
       where: { id },
       include: {
@@ -47,21 +89,17 @@ async function invoiceRoutes(fastify, opts) {
     if (!invoice) {
       return reply.notFound("Invoice not found");
     }
+    /* Ownership. A valid session for user A must not read user B's invoice, and
+       the row is only fetched by primary key above so this is the check that
+       enforces it. Same 404 as a missing row — a mismatch should be
+       indistinguishable from "no such invoice". */
+    if (!hasRenderToken && invoice.userId !== userId) {
+      return reply.notFound("Invoice not found");
+    }
 
     // Fetch global system configuration for public toggles (Email/WA/Payments)
-    let systemConfig = await prisma.systemConfiguration.findFirst();
-    if (!systemConfig) {
-      systemConfig = await prisma.systemConfiguration.create({
-        data: {
-          whatsappEnabled: true,
-          emailEnabled: true,
-          invoiceCreationEnabled: true,
-          paymentsEnabled: true,
-          globalNotice: null,
-          maintenanceMode: false,
-        }
-      });
-    }
+    // Cached; see the prisma plugin.
+    const systemConfig = await fastify.getSystemConfig();
 
     // Flatten manualPayment sub-model to old field names for client compatibility
     const { user: invoiceUser, ...invoiceRest } = invoice;
@@ -92,7 +130,14 @@ async function invoiceRoutes(fastify, opts) {
 
     // Public URL for PDF generation
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const publicUrl = `${frontendUrl}/invoices/${id}/export${isReceipt ? "?type=receipt" : ""}`;
+    /* The render token travels in the URL Puppeteer opens, and the export page
+       forwards it to the API. Two minutes, this invoice only — see
+       utils/renderToken.js for why it exists at all. */
+    const renderToken = createRenderToken(Number(id));
+    const q = new URLSearchParams();
+    if (isReceipt) q.set("type", "receipt");
+    q.set("renderToken", renderToken);
+    const publicUrl = `${frontendUrl}/invoices/${id}/export?${q.toString()}`;
 
     try {
       const pdfBuffer = await fastify.generatePDF(publicUrl);
@@ -490,7 +535,7 @@ async function invoiceRoutes(fastify, opts) {
             frontendUrl.includes("localhost") ||
             frontendUrl.includes("127.0.0.1");
           const pdfBaseUrl = isLocal ? "http://localhost:3000" : frontendUrl;
-          const pdfGenerateUrl = `${pdfBaseUrl.replace(/\/$/, "")}/invoices/${id}/export`;
+          const pdfGenerateUrl = `${pdfBaseUrl.replace(/\/$/, "")}/invoices/${id}/export?renderToken=${createRenderToken(Number(id))}`;
 
           fastify.log.info(
             { pdfGenerateUrl, frontendUrl, publicUrl, isLocal },

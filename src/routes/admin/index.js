@@ -88,6 +88,11 @@ async function adminRoutes(fastify, opts) {
         },
       });
 
+      /* role and isActive are what fastify.authenticate caches. Drop this
+         user's entry so a suspension or a demotion takes effect on their very
+         next request instead of up to 30 seconds later. */
+      fastify.authCache?.delete(parseInt(id));
+
       return updatedUser;
     } catch (error) {
       fastify.log.error(error);

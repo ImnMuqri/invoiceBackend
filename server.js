@@ -1,5 +1,12 @@
 const fastify = require("fastify")({
-  logger: true,
+  /* One line per request and one per response, at info, was the default. In
+     production that is two synchronous-ish stdout writes on every API call for
+     information the platform already records. Errors and warnings still get
+     through, and NODE_ENV=development keeps the full stream. */
+  logger:
+    process.env.NODE_ENV === "production"
+      ? { level: process.env.LOG_LEVEL || "warn" }
+      : true,
   ajv: {
     plugins: [require("ajv-formats")],
   },
@@ -70,6 +77,15 @@ async function build() {
   });
 
   // Register Helmet
+  /* Gzip/brotli on responses. The dashboard payload is the obvious case — it is
+     JSON with a lot of repeated keys, which is what deflate is good at.
+     threshold skips small bodies, where the CPU cost is not repaid. */
+  await fastify.register(require("@fastify/compress"), {
+    global: true,
+    threshold: 1024,
+    encodings: ["br", "gzip", "deflate"],
+  });
+
   await fastify.register(require("@fastify/helmet"), {
     contentSecurityPolicy: false,
     hsts: true,
@@ -90,14 +106,29 @@ async function build() {
   await fastify.register(require("./src/plugins/prisma"));
 
   // Hooks & Decorators
+  /* The account check behind every authenticated request.
+     This was a database round trip per API call — the single most frequent
+     query in the product, run before any route did its own work. It reads two
+     rarely-changing columns, so it is cached for 30 seconds per user.
+
+     The cost of caching is that disabling an account or changing a role takes
+     up to 30s to bite. That is why authCache.delete(userId) is called wherever
+     those columns are written (see the admin user routes); the TTL is the
+     backstop, not the mechanism. */
+  const { TtlCache } = require("./src/utils/ttlCache");
+  const authCache = new TtlCache({ ttlMs: 30_000, max: 10_000 });
+  fastify.decorate("authCache", authCache);
+
   fastify.decorate("authenticate", async (request, reply) => {
     try {
       if (request.method === "OPTIONS") return;
       const decoded = await request.jwtVerify();
-      const user = await fastify.prisma.user.findUnique({
-        where: { id: decoded.id },
-        select: { isActive: true, role: true },
-      });
+      const user = await authCache.wrap(decoded.id, () =>
+        fastify.prisma.user.findUnique({
+          where: { id: decoded.id },
+          select: { isActive: true, role: true },
+        }),
+      );
       if (!user || !user.isActive)
         return reply.unauthorized("Account disabled");
       request.user.role = user.role;
@@ -118,7 +149,24 @@ async function build() {
   await fastify.register(require("./src/plugins/email"));
   await fastify.register(require("./src/plugins/whatsapp"));
   await fastify.register(require("./src/plugins/usage"));
-  await fastify.register(require("./src/plugins/cron"));
+  /* Background jobs — the 09:00 reminder sweep and the 01:00 overdue pass.
+     Gated on ROLE so this file can serve both a web service and a worker.
+
+     Today there is one Railway service and ROLE is unset, so this registers and
+     nothing changes. The point is what it costs to split later: when background
+     work starts stealing time from requests, splitting becomes "add a service,
+     set ROLE=worker on it and ROLE=web here" rather than a refactor done under
+     pressure. Set ROLE=web now and the cron stops running in this process.
+
+     It is also the guard against the mistake that split would otherwise invite:
+     two services from one repo both running the scheduler, so every reminder
+     goes out twice. */
+  if (process.env.ROLE !== "web") {
+    await fastify.register(require("./src/plugins/cron"));
+    fastify.log.info({ role: process.env.ROLE || "(unset)" }, "Scheduled jobs registered in this process");
+  } else {
+    fastify.log.info("ROLE=web — scheduled jobs are not registered in this process");
+  }
 
   // Parse application/x-www-form-urlencoded natively for Payment Webhooks (like ToyyibPay)
   fastify.addContentTypeParser(

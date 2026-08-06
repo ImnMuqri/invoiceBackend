@@ -66,6 +66,11 @@ async function systemRoutes(fastify, opts) {
         }
       });
 
+      /* The kill switches and the broadcast notice are cached for 60s on the
+         read path. Invalidate here so an admin flipping a switch sees it apply
+         immediately rather than whenever the TTL happens to lapse. */
+      fastify.refCache?.delete("systemConfig");
+
       return updatedConfig;
     } catch (error) {
       fastify.log.error(error);

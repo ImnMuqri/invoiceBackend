@@ -61,9 +61,9 @@ async function payRoutes(fastify, opts) {
     }
 
     // Fetch only necessary system toggles
-    const systemConfig = await prisma.systemConfiguration.findFirst({
-      select: { paymentsEnabled: true },
-    }) ?? { paymentsEnabled: true };
+    // Cached; see the prisma plugin. This is the public pay page, so it is the
+    // one route where an unauthenticated visitor triggers the lookup.
+    const systemConfig = (await fastify.getSystemConfig()) ?? { paymentsEnabled: true };
 
     return { ...invoice, system: systemConfig };
   });
@@ -218,8 +218,22 @@ async function payRoutes(fastify, opts) {
           const response = await axios.post(`${baseUrl}/index.php/api/getBillTransactions`, form);
 
           if (Array.isArray(response.data) && response.data.length > 0) {
-            const isPaid = response.data.some((txn) => String(txn.billpaymentStatus) === "1");
-            if (isPaid) {
+            /* Bind the bill to THIS invoice. Checking only "is some transaction
+               on this billcode paid" let anyone settle any invoice with a
+               billcode from any paid bill on the same merchant account — pay
+               your own RM1 bill, replay its code here. The webhook path always
+               matched billExternalReferenceNo; this one did not. */
+            const match = response.data.find(
+              (txn) =>
+                String(txn.billExternalReferenceNo) === String(id) &&
+                String(txn.billpaymentStatus) === "1",
+            );
+            const enough =
+              match &&
+              (match.billpaymentAmount == null ||
+                Math.round(Number(match.billpaymentAmount) * 100) >=
+                  Math.round(Number(invoice.amount) * 100));
+            if (match && enough) {
               await markInvoiceAsPaid(prisma, parseInt(id));
               fastify.log.info({ invoiceId: invoice.id, toyyibpayCode }, "Invoice marked as PAID via Explicit Frontend Verification (ToyyibPay)");
               return { status: "Paid" };
@@ -245,8 +259,15 @@ async function payRoutes(fastify, opts) {
           
           const bill = await bp.getBill(billplzId);
           
-          // bill.paid can be boolean or "true" string depending on API version
-          if (bill && (bill.paid === true || String(bill.paid) === "true")) {
+          /* Same binding for Billplz: reference_1 is the invoice id we set when
+             the bill was created, so require it to match, and require the paid
+             amount (in cents) to cover the invoice. */
+          const belongs = bill && String(bill.reference_1) === String(id);
+          const covered =
+            bill &&
+            (bill.paid_amount == null ||
+              Number(bill.paid_amount) >= Math.round(Number(invoice.amount) * 100));
+          if (belongs && covered && (bill.paid === true || String(bill.paid) === "true")) {
             await markInvoiceAsPaid(prisma, parseInt(id));
             fastify.log.info({ invoiceId: invoice.id, billplzId }, "Invoice marked as PAID via Explicit Frontend Verification (Billplz)");
             return { status: "Paid" };
@@ -262,213 +283,228 @@ async function payRoutes(fastify, opts) {
     return { status: invoice.status };
   });
 
-  // Webhook for ToyyibPay
-  fastify.post("/webhook/toyyibpay", async (request, reply) => {
-    const { refno, status, reason, billcode, order_id } = request.body;
+  /* ─── Settlement gate ──────────────────────────────────────────────────
+     Every webhook goes through here, and nothing settles an invoice unless all
+     of the following hold. Each was previously skippable.
 
-    fastify.log.info(
-      { order_id, status, billcode },
-      "ToyyibPay Webhook Received",
-    );
+     The bug this replaces: verification used to sit inside
+     `if (invoice && invoice.user.paymentProviders[0]) { ... }`, and
+     markInvoiceAsPaid was called AFTER that block regardless. So when the
+     lookup found no active provider for that gateway — which is the normal case
+     for any user who connected a different one — execution fell straight past
+     the checks and settled the invoice. An unauthenticated POST naming any
+     invoice id was enough. Three of the four endpoints were unguarded for any
+     given invoice, because merchants typically connect one gateway.
 
-    // status 1 = success, 3 = failed, 2 = pending
-    if (status === "1") {
-      const invoiceId = parseInt(order_id);
-      if (isNaN(invoiceId)) return "ok";
+     Failing closed is the whole point: a missing provider, a missing signing
+     key, an unverifiable signature and a short payment all end the request
+     without touching the invoice. */
+  async function settle(request, {
+    invoiceId,
+    providerKey,
+    verify,
+    paidAmount = null,
+    amountNote = "",
+  }) {
+    if (!Number.isInteger(invoiceId)) return { ok: false, why: "bad invoice id" };
 
-      try {
-        const invoice = await prisma.invoice.findUnique({
-          where: { id: invoiceId },
-          include: {
-            user: {
-              include: {
-                paymentProviders: {
-                  where: { provider: "TOYYIBPAY", isActive: true },
-                },
-              },
+    const invoice = await prisma.invoice.findFirst({
+      // Quotations have nothing to pay; a webhook must never settle one.
+      where: { id: invoiceId, kind: "INVOICE" },
+      select: {
+        id: true,
+        amount: true,
+        status: true,
+        user: {
+          select: {
+            paymentProviders: {
+              where: { provider: providerKey, isActive: true },
             },
           },
-        });
+        },
+      },
+    });
 
-        if (invoice && invoice.user.paymentProviders[0]) {
-          const provider = invoice.user.paymentProviders[0];
-          const secret = decrypt(provider.secretKey);
-          const tp = new ToyyibPay(secret, provider.categoryCode);
-          
-          // Hardening: Verify the status directly with ToyyibPay API
-          const transactions = await tp.getBillTransactions(billcode);
-          const isActuallyPaid = transactions.some(
-            (txn) => String(txn.billExternalReferenceNo) === order_id && String(txn.billpaymentStatus) === "1"
-          );
+    if (!invoice) return { ok: false, why: "invoice not found" };
+    if (invoice.status === "Paid") return { ok: true, already: true };
 
-          if (!isActuallyPaid) {
-            fastify.log.warn({ invoiceId, billcode }, "ToyyibPay Webhook Verification Failed: API reports not paid");
-            return "ok";
-          }
-        }
+    const provider = invoice.user.paymentProviders[0];
+    /* No active provider for THIS gateway means this callback cannot be about
+       this invoice, whoever sent it. Previously the point where verification
+       was skipped; now the point where it stops. */
+    if (!provider) return { ok: false, why: `no active ${providerKey} for this invoice` };
 
-        await markInvoiceAsPaid(prisma, invoiceId);
-        fastify.log.info({ invoiceId }, "Invoice marked as PAID via ToyyibPay Webhook (Verified)");
-      } catch (err) {
-        fastify.log.error(err, "Error verifying ToyyibPay webhook");
+    let verified = false;
+    try {
+      verified = await verify(provider, invoice);
+    } catch (err) {
+      request.log.error(err, `${providerKey} verification threw`);
+      return { ok: false, why: "verification error" };
+    }
+    if (!verified) return { ok: false, why: "signature/status verification failed" };
+
+    /* Amount. Nothing checked this before, so a one-sen payment settled any
+       invoice. Compared in cents to keep float noise out of it.
+
+       Resolved AFTER verify, and callable for that reason: toyyibPay only
+       learns the amount during verification, from the API response. Passing it
+       as a plain value — or worse as a getter on the argument object, which is
+       evaluated at destructuring time — reads it before it exists. */
+    const due = typeof paidAmount === "function" ? paidAmount() : paidAmount;
+    if (due !== null && due !== undefined) {
+      const paidCents = Math.round(Number(due) * 100);
+      const dueCents = Math.round(Number(invoice.amount) * 100);
+      if (!Number.isFinite(paidCents) || paidCents < dueCents) {
+        return { ok: false, why: `underpaid: ${paidCents} of ${dueCents} cents` };
       }
-    } else if (status === "3") {
-      const invoiceId = parseInt(order_id);
-      if (!isNaN(invoiceId)) {
+    }
+
+    await markInvoiceAsPaid(prisma, invoiceId);
+    return { ok: true, amountNote };
+  }
+
+  /** Uniform logging so a refused settlement is never silent. */
+  function record(request, gateway, invoiceId, result) {
+    if (result.ok) {
+      request.log.info({ gateway, invoiceId, already: !!result.already }, "Invoice settled");
+    } else {
+      request.log.warn({ gateway, invoiceId, reason: result.why }, "Settlement REFUSED");
+    }
+  }
+
+  // ── ToyyibPay ────────────────────────────────────────────────────────────
+  // No callback signature exists; toyyibPay's guidance is to confirm through
+  // getBillTransactions, which is what verify does here.
+  fastify.post("/webhook/toyyibpay", async (request, reply) => {
+    const { status, reason, billcode, order_id } = request.body || {};
+    const invoiceId = parseInt(order_id, 10);
+
+    if (status === "3") {
+      if (Number.isInteger(invoiceId)) {
         await handlePaymentFailure(prisma, invoiceId, reason || "Payment failed");
       }
+      return "ok";
     }
+    if (status !== "1") return "ok";
 
+    let confirmedAmount = null;
+    const result = await settle(request, {
+      invoiceId,
+      providerKey: "TOYYIBPAY",
+      verify: async (provider) => {
+        if (!billcode) return false;
+        const tp = new ToyyibPay(decrypt(provider.secretKey), provider.categoryCode);
+        const txns = await tp.getBillTransactions(billcode);
+        /* Match the bill's own external reference to this invoice. Without it
+           any paid billcode from this merchant settles any of its invoices. */
+        const paid = (txns || []).find(
+          (t) =>
+            String(t.billExternalReferenceNo) === String(order_id) &&
+            String(t.billpaymentStatus) === "1",
+        );
+        if (!paid) return false;
+        if (paid.billpaymentAmount != null) confirmedAmount = paid.billpaymentAmount;
+        return true;
+      },
+      paidAmount: () => confirmedAmount,
+    });
+
+    record(request, "toyyibpay", invoiceId, result);
     return "ok";
   });
 
-  // Webhook for Billplz
+  // ── Billplz ──────────────────────────────────────────────────────────────
   fastify.post("/webhook/billplz", async (request, reply) => {
-    const { id, paid, x_signature, reference_1 } = request.body;
+    const body = request.body || {};
+    const { paid, x_signature, reference_1, paid_amount } = body;
+    const invoiceId = parseInt(reference_1, 10);
 
-    fastify.log.info({ reference_1, paid, id }, "Billplz Webhook Received");
-
-    if (paid === "true") {
-      const invoiceId = parseInt(reference_1);
-      if (isNaN(invoiceId)) return "ok";
-
-      // Verify X-Signature for security
-      try {
-        const invoice = await prisma.invoice.findUnique({
-          where: { id: invoiceId },
-          include: {
-            user: {
-              include: {
-                paymentProviders: {
-                  where: { provider: "BILLPLZ", isActive: true },
-                },
-              },
-            },
-          },
-        });
-
-        if (invoice && invoice.user.paymentProviders[0]) {
-          const provider = invoice.user.paymentProviders[0];
-          const xSignatureKey = decrypt(provider.xSignatureKey);
-          const bp = new Billplz(decrypt(provider.apiKey), provider.collectionId, xSignatureKey);
-
-          if (xSignatureKey) {
-            if (!bp.verifySignature(request.body, x_signature)) {
-              fastify.log.warn({ invoiceId }, "Billplz X-Signature Verification Failed");
-              return "ok";
-            }
-          }
-        }
-
-        await markInvoiceAsPaid(prisma, invoiceId);
-        fastify.log.info({ invoiceId }, "Invoice marked as PAID via Billplz Webhook (Verified)");
-      } catch (err) {
-        fastify.log.error(err, "Error processing Billplz webhook");
-      }
-    } else {
-      const invoiceId = parseInt(reference_1);
-      if (!isNaN(invoiceId)) {
-        await handlePaymentFailure(prisma, invoiceId, "Transaction was not successful or was cancelled.");
-        fastify.log.info(
-          { invoiceId },
-          "Invoice payment FAILED via Billplz Webhook",
+    if (String(paid) !== "true") {
+      if (Number.isInteger(invoiceId)) {
+        await handlePaymentFailure(
+          prisma,
+          invoiceId,
+          "Transaction was not successful or was cancelled.",
         );
       }
+      return "ok";
     }
 
+    const result = await settle(request, {
+      invoiceId,
+      providerKey: "BILLPLZ",
+      // paid_amount is in cents.
+      paidAmount: paid_amount != null ? Number(paid_amount) / 100 : null,
+      verify: async (provider) => {
+        const xSignatureKey = decrypt(provider.xSignatureKey);
+        // No key configured is now a refusal, not a free pass.
+        if (!xSignatureKey) return false;
+        const bp = new Billplz(decrypt(provider.apiKey), provider.collectionId, xSignatureKey);
+        return bp.verifySignature(body, x_signature);
+      },
+    });
+
+    record(request, "billplz", invoiceId, result);
     return "ok";
   });
 
-  // Webhook for HitPay
+  // ── HitPay ───────────────────────────────────────────────────────────────
   fastify.post("/webhook/hitpay", async (request, reply) => {
-    const { reference_number, status, hmac } = request.body;
-    
-    fastify.log.info({ reference_number, status }, "HitPay Webhook Received");
+    const body = request.body || {};
+    const { reference_number, status, hmac, amount } = body;
+    const invoiceId = parseInt(reference_number, 10);
 
-    const invoiceId = parseInt(reference_number);
-    if (isNaN(invoiceId)) return "ok";
-
-    // Verify Signature
-    try {
-      const invoice = await prisma.invoice.findUnique({
-        where: { id: invoiceId },
-        include: {
-          user: {
-            include: {
-              paymentProviders: {
-                where: { provider: "HITPAY", isActive: true },
-              },
-            },
-          },
-        },
-      });
-
-      if (invoice && invoice.user.paymentProviders[0]) {
-        const provider = invoice.user.paymentProviders[0];
+    const result = await settle(request, {
+      invoiceId,
+      providerKey: "HITPAY",
+      paidAmount: amount != null ? Number(amount) : null,
+      verify: async (provider) => {
+        if (status !== "completed") return false;
         const salt = decrypt(provider.salt);
+        if (!salt) return false;
         const hp = new HitPay(decrypt(provider.apiKey), salt);
-        
-        if (!hp.verifySignature(request.rawBody, hmac)) {
-          fastify.log.warn({ invoiceId }, "HitPay Signature Verification Failed (Hardened)");
-          return "ok";
-        }
-      }
+        // v1 signs the parsed FIELDS, not the raw body — see hitpay.js.
+        return hp.verifySignature(body, hmac);
+      },
+    });
 
-      if (status === "completed") {
-        await markInvoiceAsPaid(prisma, invoiceId);
-      } else {
-        await handlePaymentFailure(prisma, invoiceId, `HitPay status: ${status}`);
-      }
-    } catch (err) {
-      fastify.log.error(err, "Error processing HitPay webhook");
+    if (!result.ok && status && status !== "completed") {
+      await handlePaymentFailure(prisma, invoiceId, `HitPay status: ${status}`);
     }
-
+    record(request, "hitpay", invoiceId, result);
     return "ok";
   });
 
-  // Webhook for SenangPay
+  // ── SenangPay ────────────────────────────────────────────────────────────
   fastify.get("/webhook/senangpay", async (request, reply) => {
-    const { status_id, order_id, transaction_id, msg, hash } = request.query;
+    const q = request.query || {};
+    const { status_id, order_id, msg } = q;
+    const invoiceId = parseInt(order_id, 10);
 
-    fastify.log.info({ order_id, status_id, msg }, "SenangPay Webhook Received");
-
-    const invoiceId = parseInt(order_id);
-    if (isNaN(invoiceId)) return "ok";
-
-    try {
-      const invoice = await prisma.invoice.findUnique({
-        where: { id: invoiceId },
-        include: {
-          user: {
-            include: {
-              paymentProviders: {
-                where: { provider: "SENANGPAY", isActive: true },
-              },
-            },
-          },
-        },
-      });
-
-      if (invoice && invoice.user.paymentProviders[0]) {
-        const provider = invoice.user.paymentProviders[0];
-        const sp = new SenangPay(provider.merchantId, decrypt(provider.secretKey));
-        
-        if (!sp.verifyHash(request.query)) {
-          fastify.log.warn({ invoiceId }, "SenangPay Hash Verification Failed");
-          return "ok";
-        }
-      }
-
-      // SenangPay status_id: 1 = Success, 0 = Failed
-      if (status_id === "1") {
-        await markInvoiceAsPaid(prisma, invoiceId);
-      } else {
+    if (status_id !== "1") {
+      if (Number.isInteger(invoiceId)) {
         await handlePaymentFailure(prisma, invoiceId, msg || "SenangPay transaction failed");
       }
-    } catch (err) {
-      fastify.log.error(err, "Error processing SenangPay webhook");
+      return reply.type("text/plain").send("OK");
     }
 
+    const result = await settle(request, {
+      invoiceId,
+      providerKey: "SENANGPAY",
+      /* senangPay's return parameters are status_id, order_id, transaction_id,
+         msg and hash — no amount among them, so there is nothing to compare and
+         this stays null rather than being faked. The hash covers order_id, so
+         the callback cannot be pointed at a different invoice; it just cannot
+         prove how much was paid. */
+      paidAmount: null,
+      amountNote: "senangPay sends no amount; settled on hash + order_id only",
+      verify: async (provider) => {
+        const sp = new SenangPay(provider.merchantId, decrypt(provider.secretKey));
+        return sp.verifyHash(q);
+      },
+    });
+
+    record(request, "senangpay", invoiceId, result);
     return reply.type("text/plain").send("OK");
   });
 }

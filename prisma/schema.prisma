@@ -180,6 +180,8 @@ model PaymentProvider {
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([userId, provider, isActive])
 }
 
 // ─────────────────────────────────────────────
@@ -203,6 +205,8 @@ model Client {
   invoices         Invoice[]
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────
@@ -279,6 +283,11 @@ model Invoice {
   items                    InvoiceItem[]
   createdAt                DateTime      @default(now())
   updatedAt                DateTime      @updatedAt
+
+  @@index([userId, kind, status])
+  @@index([userId, kind, date(sort: Desc)])
+  @@index([clientId])
+  @@index([status, dueDate])
 }
 
 model InvoiceItem {
@@ -291,6 +300,8 @@ model InvoiceItem {
   total     Float
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([invoiceId])
 }
 
 // ─────────────────────────────────────────────
@@ -349,6 +360,8 @@ model Subscription {
   cancelAtPeriodEnd    Boolean   @default(false)
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
+
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────
@@ -418,6 +431,9 @@ model AppNotification {
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 // ─────────────────────────────────────────────
@@ -440,6 +456,8 @@ model Ticket {
   // Link to user if email matches
   userId Int?
   user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
 }
 
 model TicketMessage {
@@ -450,4 +468,6 @@ model TicketMessage {
   content   String   @db.Text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([ticketId])
 }

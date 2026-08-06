@@ -1,5 +1,6 @@
 const axios = require("axios");
 const crypto = require("crypto");
+const { safeEqual } = require("./compare");
 
 /**
  * HitPay Integration Utility - Hardened for Production
@@ -52,18 +53,41 @@ class HitPay {
   }
 
   /**
-   * Verify HitPay Webhook Signature
-   * Production requirement: Use RAW JSON body string
+   * Verify a HitPay v1 payment-request webhook.
+   *
+   * This was hashing the RAW BODY, which is the v2 scheme. The v1
+   * /payment-requests webhook — the one createBill above subscribes to — posts
+   * application/x-www-form-urlencoded and signs the FIELDS. HitPay's own
+   * reference implementation:
+   *
+   *   foreach ($args as $key => $val) { $hmacSource[$key] = "{$key}{$val}"; }
+   *   ksort($hmacSource);
+   *   $sig = implode("", array_values($hmacSource));   // no separator
+   *   hash_hmac('sha256', $sig, $secret);
+   *
+   * Note "implode with empty string" — unlike Billplz, there is no "|" between
+   * pairs. Hashing the raw body could never match this, so every HitPay payment
+   * silently failed verification and no invoice was ever settled through it.
+   *
+   * Values must come from the parsed form as strings, exactly as sent. Do not
+   * re-serialise numbers: "599.00" and 599 hash differently.
    */
-  verifySignature(rawBody, receivedSignature) {
-    if (!this.salt) return true; // Fail-safe if not configured
+  verifySignature(fields, receivedSignature) {
+    if (!this.salt) return false;
+    if (!receivedSignature) return false;
 
-    const expectedSignature = crypto
+    const sourceString = Object.keys(fields)
+      .filter((key) => key !== "hmac")
+      .sort()
+      .map((key) => `${key}${fields[key]}`)
+      .join("");
+
+    const expected = crypto
       .createHmac("sha256", this.salt)
-      .update(rawBody)
+      .update(sourceString)
       .digest("hex");
 
-    return expectedSignature === receivedSignature;
+    return safeEqual(expected, String(receivedSignature));
   }
 }
 

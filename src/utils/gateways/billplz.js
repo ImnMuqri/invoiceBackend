@@ -1,4 +1,6 @@
 const axios = require("axios");
+const crypto = require("crypto");
+const { safeEqual } = require("./compare");
 
 /**
  * Billplz Integration Utility
@@ -71,28 +73,39 @@ class Billplz {
   }
 
   /**
-   * Verify Billplz X-Signature
+   * Verify Billplz X-Signature.
+   *
+   * Per the Billplz API reference: take every posted key except `x_signature`,
+   * sort ascending case-insensitively, build "keyvalue" per pair with NO
+   * separator inside the pair, join the pairs with "|", then HMAC-SHA256 with
+   * the X-Signature key.
+   *
+   *   amount100|collection_idyhx5t1pp|due_at2018-9-27|idzq0tm2wc|paidtrue|...
+   *
+   * Two things that were wrong here:
+   *   - .sort() is ASCII, so it is case-SENSITIVE. The spec says
+   *     case-insensitive. Billplz keys are lowercase today, so this was latent
+   *     rather than broken, but it is one added mixed-case field from breaking.
+   *   - A missing key returned TRUE. That is fail-open: a provider connected
+   *     without its X-Signature key accepted every forged callback. It is a
+   *     hard reject now, and the caller refuses to settle without a key.
    */
   verifySignature(params, receivedSignature) {
-    if (!this.xSignatureKey) return true; // Fail-safe if not configured
+    if (!this.xSignatureKey) return false;
+    if (!receivedSignature) return false;
 
-    // 1. Get all keys except x_signature
-    const keys = Object.keys(params)
+    const sourceString = Object.keys(params)
       .filter((key) => key !== "x_signature")
-      .sort();
-
-    // 2. Join into a string: key1value1|key2value2|...
-    const sourceString = keys
+      .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
       .map((key) => `${key}${params[key]}`)
       .join("|");
 
-    // 3. Compute HMAC-SHA256
-    const expectedSignature = require("crypto")
+    const expected = crypto
       .createHmac("sha256", this.xSignatureKey)
       .update(sourceString)
       .digest("hex");
 
-    return expectedSignature === receivedSignature;
+    return safeEqual(expected, String(receivedSignature));
   }
 }
 

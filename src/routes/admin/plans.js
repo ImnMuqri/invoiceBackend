@@ -20,6 +20,9 @@ async function planRoutes(fastify, opts) {
       const plan = await prisma.plan.create({
         data: request.body,
       });
+
+      // Plan list is cached on the read path; drop it so this is visible now.
+      fastify.refCache?.delete("plans");
       return plan;
     } catch (error) {
       fastify.log.error(error);
@@ -35,6 +38,9 @@ async function planRoutes(fastify, opts) {
         where: { id: parseInt(id) },
         data: request.body,
       });
+
+      // Plan list is cached on the read path; drop it so this is visible now.
+      fastify.refCache?.delete("plans");
       return plan;
     } catch (error) {
       fastify.log.error(error);
