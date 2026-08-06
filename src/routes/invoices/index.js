@@ -2,6 +2,7 @@ async function invoiceRoutes(fastify, opts) {
   const { prisma } = fastify;
   const { createNotification } = require("../../utils/notificationUtils");
   const { checkAndNotifyOverdue } = require("../../utils/invoiceUtils");
+  const { assertCreationEnabled } = require("../../utils/systemGuards");
 
   // PUBLIC ROUTES (No Auth Required)
   // GET invoice by ID (Public for payment page)
@@ -15,6 +16,13 @@ async function invoiceRoutes(fastify, opts) {
         user: {
           select: {
             plan: true,
+            /* The sender's logo. Without it this endpoint could not supply one,
+               so /invoices/:id/export — the page Puppeteer photographs to make
+               the PDF — rendered every invoice unbranded, while the builder
+               preview beside it showed the logo because that page reads it from
+               the logged-in user's own store. The preview promised a letterhead
+               the client never received. */
+            profile: { select: { logoUrl: true } },
             manualPayment: {
               select: {
                 bankName: true,
@@ -109,7 +117,7 @@ async function invoiceRoutes(fastify, opts) {
     // GET all invoices
     protectedInstance.get("/", async (request, reply) => {
       return prisma.invoice.findMany({
-        where: { userId: request.user.id },
+        where: { kind: "INVOICE", userId: request.user.id },
         include: { client: true },
         orderBy: { date: "desc" },
       });
@@ -150,6 +158,9 @@ async function invoiceRoutes(fastify, opts) {
         },
       },
     }, async (request, reply) => {
+      // The platform kill switch, enforced here rather than only in the UI.
+      if (!(await assertCreationEnabled(prisma, reply, "Invoices"))) return;
+
       // Enforce usage limits BEFORE doing anything else
       try {
         await fastify.usage.checkAndIncrement(request.user.id, "invoice");
@@ -204,7 +215,7 @@ async function invoiceRoutes(fastify, opts) {
 
       // 2. Find the highest userInvoiceNumber for this user
       const lastInvoice = await prisma.invoice.findFirst({
-        where: { userId: request.user.id },
+        where: { kind: "INVOICE", userId: request.user.id },
         orderBy: { userInvoiceNumber: "desc" },
         select: { userInvoiceNumber: true },
       });
@@ -421,7 +432,7 @@ async function invoiceRoutes(fastify, opts) {
       const { method, email, isReminder } = request.body; // method: 'email' or 'whatsapp'
 
       const invoice = await prisma.invoice.findFirst({
-        where: { id, userId: request.user.id },
+        where: { kind: "INVOICE", id, userId: request.user.id },
         include: { client: true },
       });
 

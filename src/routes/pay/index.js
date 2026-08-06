@@ -11,8 +11,9 @@ async function payRoutes(fastify, opts) {
   // GET invoice and providers info
   fastify.get("/invoice/:id", async (request, reply) => {
     const { id } = request.params;
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: parseInt(id) },
+    const invoice = await prisma.invoice.findFirst({
+      // Invoices only. A quotation has nothing to pay.
+      where: { id: parseInt(id), kind: "INVOICE" },
       select: {
         id: true,
         invoiceNumber: true,
@@ -72,8 +73,9 @@ async function payRoutes(fastify, opts) {
     const { id } = request.params;
     const { providerId } = request.body;
 
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: parseInt(id) },
+    const invoice = await prisma.invoice.findFirst({
+      // Invoices only. A quotation has nothing to pay.
+      where: { id: parseInt(id), kind: "INVOICE" },
       include: {
         client: true,
         user: {
@@ -183,8 +185,9 @@ async function payRoutes(fastify, opts) {
     const { id } = request.params;
     const { billcode, transaction_id } = request.query;
 
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: parseInt(id) },
+    const invoice = await prisma.invoice.findFirst({
+      // Invoices only. A quotation has nothing to pay.
+      where: { id: parseInt(id), kind: "INVOICE" },
       include: {
         user: {
           include: {

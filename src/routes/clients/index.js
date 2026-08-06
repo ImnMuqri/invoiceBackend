@@ -109,14 +109,18 @@ async function clientRoutes(fastify, opts) {
   fastify.delete("/:id", async (request, reply) => {
     const id = Number(request.params.id);
 
-    // Check if client has invoices
-    const invoiceCount = await prisma.invoice.count({
+    // Deliberately NOT filtered by kind. This asks "does anything still point at
+    // this client", and a quotation points at one just as hard as an invoice —
+    // the foreign key is required either way. Guarding it to invoices would let
+    // you delete a client who only has quotes, and the database would then
+    // refuse the delete on the FK, turning a clear message into a 500.
+    const documentCount = await prisma.invoice.count({
       where: { clientId: id, userId: request.user.id },
     });
 
-    if (invoiceCount > 0) {
+    if (documentCount > 0) {
       return reply.badRequest(
-        `Cannot delete client. They have ${invoiceCount} associated invoices. Delete the invoices first.`,
+        `Cannot delete client. They have ${documentCount} associated invoices or quotations. Delete those first.`,
       );
     }
 

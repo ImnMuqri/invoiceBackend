@@ -90,6 +90,9 @@ model UserQuota {
   emailRemindersUsed Int      @default(0)
   aiUsed             Int      @default(0)
   invoicesUsed       Int      @default(0)
+  /// Counted separately from invoices: quoting for work you do not win should
+  /// not spend the allowance for billing the work you do.
+  quotesUsed         Int      @default(0)
   lastResetDate      DateTime @default(now())
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
@@ -127,6 +130,10 @@ model UserInvoiceConfig {
   userId                      Int      @unique
   user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   invoicePrefix               String   @default("INV")
+  /// Quotes get their own prefix and their own sequence, so issuing a quote
+  /// never advances the invoice numbering. An accountant reading a run of
+  /// invoice numbers with gaps in it will ask why.
+  quotePrefix                 String   @default("QUO")
   defaultTaxRate              Float    @default(0.0)
   invoiceIncludeName          Boolean  @default(true)
   invoiceIncludeEmail         Boolean  @default(false)
@@ -201,13 +208,37 @@ model Client {
 // Invoice — Core billing entity
 // Intentionally snapshots sender info at creation time
 // ─────────────────────────────────────────────
+// One table, two kinds of document.
+//
+// A quotation and an invoice share everything that matters — the client, the
+// line items, the sender's letterhead, the PDF — and differ in three things:
+// what it is called, whether it can be paid, and which date matters. A separate
+// Quotation model would have duplicated twenty fields and the whole builder and
+// PDF stack to express those three differences.
+//
+// The cost of the discriminator is discipline, and it is a real cost. Every
+// query that assumes money is owed MUST filter on kind, or the chaser emails a
+// client that their quotation is overdue. The guarded call sites are:
+//
+//   src/plugins/cron.js      overdue marking, email + WhatsApp reminders
+//   src/routes/pay/*         a quote has nothing to pay
+//   src/routes/invoices/*    the money-shaped endpoints
+//   src/routes/dashboard/*   outstanding totals
+//
+// Existing rows all become INVOICE, so the migration is a no-op behaviourally.
 model Invoice {
   id                       Int           @id @default(autoincrement())
   userId                   Int
   user                     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   clientId                 Int
   client                   Client        @relation(fields: [clientId], references: [id])
+
+  /// "INVOICE" | "QUOTE"
+  kind                     String        @default("INVOICE")
+
+  /// Per-user sequence. Quotes count on their own so invoice numbers never gap.
   userInvoiceNumber        Int           @default(0)
+  userQuoteNumber          Int?
   invoiceNumber            String?
   invoiceName              String?
   subject                  String?
@@ -217,7 +248,20 @@ model Invoice {
   fromPhone                String?
   fromAddress              String?
   date                     DateTime      @default(now())
-  dueDate                  DateTime
+
+  /// Invoices only. Nullable because a quotation is not owed on a date — it
+  /// expires on one, which is validUntil below.
+  dueDate                  DateTime?
+  /// Quotes only. After this the quote is stale and should not be accepted.
+  validUntil               DateTime?
+
+  /// Conversion is non-destructive: accepting a quote creates a NEW invoice and
+  /// leaves the quote standing, so the accepted document survives as a record
+  /// and both ends can be shown to the client.
+  convertedFromId          Int?          @unique
+  convertedFrom            Invoice?      @relation("QuoteToInvoice", fields: [convertedFromId], references: [id])
+  convertedTo              Invoice?      @relation("QuoteToInvoice")
+
   amount                   Float
   amountPaid               Float         @default(0.0)
   status                   String        @default("Pending")
@@ -299,6 +343,8 @@ model Plan {
   waReminders    Int      @default(0)
   emailReminders Int      @default(0)
   invoices       Int      @default(0)
+  /// Monthly quotations. Seeded per plan; see prisma/seed-plans.js.
+  quotes         Int      @default(0)
   features       String[]
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())

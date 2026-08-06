@@ -4,9 +4,9 @@ async function usagePlugin(fastify, opts) {
   const { prisma } = fastify;
 
   const LIMITS = {
-    FREE: { invoices: 5, waSends: 0, emailSends: 5, waReminders: 0, emailReminders: 0, ai: 2 },
-    PRO:  { invoices: 30, waSends: 30, emailSends: 50, waReminders: 30, emailReminders: 50, ai: 20 },
-    MAX:  { invoices: 100, waSends: 100, emailSends: 100, waReminders: 100, emailReminders: 100, ai: 50 },
+    FREE: { invoices: 5, quotes: 5, waSends: 0, emailSends: 5, waReminders: 0, emailReminders: 0, ai: 2 },
+    PRO:  { invoices: 30, quotes: 30, waSends: 30, emailSends: 50, waReminders: 30, emailReminders: 50, ai: 20 },
+    MAX:  { invoices: 100, quotes: 100, waSends: 100, emailSends: 100, waReminders: 100, emailReminders: 100, ai: 50 },
   };
 
   const checkAndIncrement = async (userId, type) => {
@@ -32,6 +32,7 @@ async function usagePlugin(fastify, opts) {
       emailReminder: "emailRemindersUsed",
       ai: "aiUsed",
       invoice: "invoicesUsed",
+      quote: "quotesUsed",
     };
     const limitMap = {
       waSend: "waSends",
@@ -40,6 +41,7 @@ async function usagePlugin(fastify, opts) {
       emailReminder: "emailReminders",
       ai: "ai",
       invoice: "invoices",
+      quote: "quotes",
     };
 
     const countField = fieldMap[type];
@@ -59,6 +61,7 @@ async function usagePlugin(fastify, opts) {
           emailRemindersUsed: 0,
           aiUsed: 0,
           invoicesUsed: 0,
+          quotesUsed: 0,
           lastResetDate: now,
         },
         create: {
@@ -69,6 +72,7 @@ async function usagePlugin(fastify, opts) {
           emailRemindersUsed: 0,
           aiUsed: 0,
           invoicesUsed: 0,
+          quotesUsed: 0,
           lastResetDate: now,
         },
       });
@@ -79,6 +83,7 @@ async function usagePlugin(fastify, opts) {
       quota.emailRemindersUsed = 0;
       quota.aiUsed = 0;
       quota.invoicesUsed = 0;
+      quota.quotesUsed = 0;
     }
 
     const currentCount = quota[countField] ?? 0;
@@ -117,6 +122,7 @@ async function usagePlugin(fastify, opts) {
       emailReminder: "emailRemindersUsed",
       ai: "aiUsed",
       invoice: "invoicesUsed",
+      quote: "quotesUsed",
     };
     const limitMap = {
       waSend: "waSends",
@@ -125,6 +131,7 @@ async function usagePlugin(fastify, opts) {
       emailReminder: "emailReminders",
       ai: "ai",
       invoice: "invoices",
+      quote: "quotes",
     };
 
     const countField = fieldMap[type];

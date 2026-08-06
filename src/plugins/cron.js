@@ -39,6 +39,8 @@ async function cronPlugin(fastify, opts) {
         const pendingInvoices = await fastify.prisma.invoice.findMany({
           where: {
             userId: user.id,
+            // Invoices only. A quotation is not owed, so it is never chased.
+            kind: "INVOICE",
             status: { in: ["Pending", "Overdue"] },
             client: {
               OR: [{ autoChaser: true }, { autoEmailChaser: true }],
@@ -248,6 +250,9 @@ async function cronPlugin(fastify, opts) {
       const now = new Date();
       const overdueInvoices = await fastify.prisma.invoice.findMany({
         where: {
+          // A quote past its validUntil is stale, not overdue, and marking it
+          // Overdue would put it in the user's late-money figures.
+          kind: "INVOICE",
           status: { in: ["Pending", "Partially Paid"] },
           dueDate: { lt: now },
         },

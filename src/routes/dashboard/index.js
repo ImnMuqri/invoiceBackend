@@ -33,7 +33,7 @@ async function dashboardRoutes(fastify, opts) {
 
       // Fetch all relevant invoices for manual summation with conversion
       const allInvoices = await prisma.invoice.findMany({
-        where: { userId: request.user.id },
+        where: { kind: "INVOICE", userId: request.user.id },
       });
 
       const totalRevenue = allInvoices
@@ -50,6 +50,7 @@ async function dashboardRoutes(fastify, opts) {
 
       const overdueCount = await prisma.invoice.count({
         where: {
+          kind: "INVOICE",
           userId: request.user.id,
           OR: [
             { status: "Overdue" },
@@ -66,7 +67,7 @@ async function dashboardRoutes(fastify, opts) {
       });
 
       const recentInvoices = await prisma.invoice.findMany({
-        where: { userId: request.user.id },
+        where: { kind: "INVOICE", userId: request.user.id },
         take: 5,
         orderBy: { date: "desc" },
         include: { client: true },
@@ -77,6 +78,7 @@ async function dashboardRoutes(fastify, opts) {
       const topClientsRaw = await prisma.invoice.groupBy({
         by: ["clientId"],
         where: {
+          kind: "INVOICE",
           userId: request.user.id,
           status: "Paid",
         },
@@ -98,7 +100,7 @@ async function dashboardRoutes(fastify, opts) {
           });
 
           const clientPaidInvoices = await prisma.invoice.findMany({
-            where: { clientId: raw.clientId, userId: request.user.id, status: "Paid" },
+            where: { kind: "INVOICE", clientId: raw.clientId, userId: request.user.id, status: "Paid" },
           });
 
           const convertedRevenue = clientPaidInvoices.reduce((sum, inv) => {
@@ -121,6 +123,7 @@ async function dashboardRoutes(fastify, opts) {
       // Fetch overdue invoices for AI context
       const overdueInvoicesContext = await prisma.invoice.findMany({
         where: {
+          kind: "INVOICE",
           userId: request.user.id,
           OR: [
             { status: "Overdue" },
@@ -276,6 +279,7 @@ async function dashboardRoutes(fastify, opts) {
 
       const paidInvoices = await prisma.invoice.findMany({
         where: {
+          kind: "INVOICE",
           userId: request.user.id,
           status: "Paid",
           date: { gte: historyStartDate, lte: now },
@@ -285,6 +289,7 @@ async function dashboardRoutes(fastify, opts) {
 
       const pendingInvoices = await prisma.invoice.findMany({
         where: {
+          kind: "INVOICE",
           userId: request.user.id,
           status: { in: ["Pending", "Overdue"] },
           dueDate: { gte: now, lte: forecastEndDate },

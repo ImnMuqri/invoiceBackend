@@ -30,7 +30,7 @@ async function analyticsRoutes(fastify, opts) {
           where: { createdAt: { lt: thirtyDaysAgo, gte: sixtyDaysAgo } },
         }),
         prisma.invoice.count({
-          where: { date: { lt: thirtyDaysAgo, gte: sixtyDaysAgo } },
+          where: { kind: "INVOICE", date: { lt: thirtyDaysAgo, gte: sixtyDaysAgo } },
         }),
       ]);
 
@@ -55,6 +55,7 @@ async function analyticsRoutes(fastify, opts) {
       const [paidInvoices, activeSubscriptions] = await Promise.all([
         prisma.invoice.findMany({
           where: {
+            kind: "INVOICE",
             status: "Paid",
             date: { gte: thirtyDaysAgo },
           },
@@ -85,6 +86,7 @@ async function analyticsRoutes(fastify, opts) {
       // Calculate Revenue Growth (Comparing current 30d vs previous 30d)
       const prevPaidInvoices = await prisma.invoice.findMany({
         where: {
+          kind: "INVOICE",
           status: "Paid",
           date: { lt: thirtyDaysAgo, gte: sixtyDaysAgo },
         },

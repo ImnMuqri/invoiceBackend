@@ -40,6 +40,7 @@ async function markInvoiceAsPaid(prisma, invoiceId, amountPaid = null) {
   // Fetch all paid invoices for this client to get a true historical average
   const paidInvoices = await prisma.invoice.findMany({
     where: {
+      kind: "INVOICE",
       clientId: invoice.clientId,
       status: "Paid",
       paidAt: { not: null },
