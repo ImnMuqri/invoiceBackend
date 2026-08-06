@@ -16,43 +16,44 @@ enum Role {
 // Core User — Auth, Plan & Billing Identity
 // ─────────────────────────────────────────────
 model User {
-  id                   Int      @id @default(autoincrement())
-  email                String   @unique
-  password             String
-  plan                 String   @default("FREE")
-  role                 Role     @default(USER)
-  isActive             Boolean  @default(true)
-  onboardingCompleted  Boolean  @default(false)
+  id                  Int     @id @default(autoincrement())
+  email               String  @unique
+  password            String
+  plan                String  @default("FREE")
+  role                Role    @default(USER)
+  isActive            Boolean @default(true)
+  onboardingCompleted Boolean @default(false)
 
   // Xendit billing linkage (lives here, not on Subscription, so webhook can find user fast)
   xenditCustomerId     String?
   xenditSubscriptionId String?
 
   // Referral system
-  referralCode         String?  @unique
-  referralCredits      Int      @default(0)
-  referralCreditEarned Boolean  @default(false)
+  referralCode         String? @unique
+  referralCredits      Int     @default(0)
+  referralCreditEarned Boolean @default(false)
   referredById         Int?
-  referredBy           User?    @relation("UserReferrals", fields: [referredById], references: [id])
-  referrals            User[]   @relation("UserReferrals")
+  referredBy           User?   @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals            User[]  @relation("UserReferrals")
 
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // 1-to-1 sub-models
-  profile              UserProfile?
-  quota                UserQuota?
-  notification         UserNotification?
-  invoiceConfig        UserInvoiceConfig?
-  manualPayment        ManualPayment?
+  profile       UserProfile?
+  quota         UserQuota?
+  notification  UserNotification?
+  invoiceConfig UserInvoiceConfig?
+  manualPayment ManualPayment?
 
   // 1-to-many
-  clients              Client[]
-  invoices             Invoice[]
-  paymentProviders     PaymentProvider[]
-  subscriptions        Subscription[]
-  notifications        AppNotification[]
-  tickets              Ticket[]
+  clients          Client[]
+  invoices         Invoice[]
+  paymentProviders PaymentProvider[]
+  subscriptions    Subscription[]
+  notifications    AppNotification[]
+  tickets          Ticket[]
+  catalogue        CatalogueItem[]
 }
 
 // ─────────────────────────────────────────────
@@ -167,14 +168,14 @@ model PaymentProvider {
   id            Int      @id @default(autoincrement())
   userId        Int
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider      String   // "TOYYIBPAY" or "BILLPLZ"
-  apiKey        String?  // Encrypted
-  secretKey     String?  // Encrypted
+  provider      String // "TOYYIBPAY" or "BILLPLZ"
+  apiKey        String? // Encrypted
+  secretKey     String? // Encrypted
   collectionId  String?
   categoryCode  String?
-  xSignatureKey String?  // Encrypted
+  xSignatureKey String? // Encrypted
   merchantId    String?
-  salt          String?  // Encrypted
+  salt          String? // Encrypted
   isPreferred   Boolean  @default(false)
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
@@ -227,40 +228,40 @@ model Client {
 //
 // Existing rows all become INVOICE, so the migration is a no-op behaviourally.
 model Invoice {
-  id                       Int           @id @default(autoincrement())
-  userId                   Int
-  user                     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clientId                 Int
-  client                   Client        @relation(fields: [clientId], references: [id])
+  id       Int    @id @default(autoincrement())
+  userId   Int
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId Int
+  client   Client @relation(fields: [clientId], references: [id])
 
   /// "INVOICE" | "QUOTE"
-  kind                     String        @default("INVOICE")
+  kind String @default("INVOICE")
 
   /// Per-user sequence. Quotes count on their own so invoice numbers never gap.
-  userInvoiceNumber        Int           @default(0)
-  userQuoteNumber          Int?
-  invoiceNumber            String?
-  invoiceName              String?
-  subject                  String?
-  fromName                 String?
-  fromCompanyName          String?
-  fromEmail                String?
-  fromPhone                String?
-  fromAddress              String?
-  date                     DateTime      @default(now())
+  userInvoiceNumber Int      @default(0)
+  userQuoteNumber   Int?
+  invoiceNumber     String?
+  invoiceName       String?
+  subject           String?
+  fromName          String?
+  fromCompanyName   String?
+  fromEmail         String?
+  fromPhone         String?
+  fromAddress       String?
+  date              DateTime @default(now())
 
   /// Invoices only. Nullable because a quotation is not owed on a date — it
   /// expires on one, which is validUntil below.
-  dueDate                  DateTime?
+  dueDate    DateTime?
   /// Quotes only. After this the quote is stale and should not be accepted.
-  validUntil               DateTime?
+  validUntil DateTime?
 
   /// Conversion is non-destructive: accepting a quote creates a NEW invoice and
   /// leaves the quote standing, so the accepted document survives as a record
   /// and both ends can be shown to the client.
-  convertedFromId          Int?          @unique
-  convertedFrom            Invoice?      @relation("QuoteToInvoice", fields: [convertedFromId], references: [id])
-  convertedTo              Invoice?      @relation("QuoteToInvoice")
+  convertedFromId Int?     @unique
+  convertedFrom   Invoice? @relation("QuoteToInvoice", fields: [convertedFromId], references: [id])
+  convertedTo     Invoice? @relation("QuoteToInvoice")
 
   amount                   Float
   amountPaid               Float         @default(0.0)
@@ -293,22 +294,61 @@ model InvoiceItem {
 }
 
 // ─────────────────────────────────────────────
+// CatalogueItem — the things you sell, priced once
+// ─────────────────────────────────────────────
+// Deliberately NOT an inventory model. There is no stock level, no reorder
+// point and no movement history, because nothing in this product decrements a
+// quantity when an invoice goes out — promising that in the schema would be a
+// lie the UI then has to keep. This is a price list: the name, what it costs and
+// what a unit of it is, so a line item can be filled in from one click instead
+// of retyped for the hundredth time.
+//
+// A line item copies these values rather than pointing at them. An invoice sent
+// two years ago must still say what it said, so raising your day rate cannot be
+// allowed to rewrite history. That is why there is no relation from InvoiceItem
+// back to here — see InvoiceItem, which stays a plain row of text and numbers.
+model CatalogueItem {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  price       Float   @default(0)
+  // "hour", "day", "each", "project" — free text, because the unit a plumber
+  // uses and the unit a designer uses have nothing in common.
+  unit        String?
+
+  // Archived rather than deleted: an item you no longer sell still appears on
+  // invoices you have already sent, and removing it should not imply otherwise.
+  archived Boolean @default(false)
+
+  timesUsed  Int       @default(0)
+  lastUsedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, archived])
+}
+
+// ─────────────────────────────────────────────
 // Subscription — Billing history per user
 // ─────────────────────────────────────────────
 model Subscription {
-  id                   Int      @id @default(autoincrement())
+  id                   Int       @id @default(autoincrement())
   userId               Int
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  xenditSubscriptionId String?  @unique
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  xenditSubscriptionId String?   @unique
   plan                 String
   amount               Float
-  currency             String   @default("MYR")
-  status               String   @default("PENDING")
+  currency             String    @default("MYR")
+  status               String    @default("PENDING")
   subscriptionStart    DateTime?
   subscriptionEnds     DateTime?
-  cancelAtPeriodEnd    Boolean  @default(false)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  cancelAtPeriodEnd    Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 }
 
 // ─────────────────────────────────────────────
@@ -317,7 +357,7 @@ model Subscription {
 model PromoCode {
   id            Int       @id @default(autoincrement())
   code          String    @unique
-  discountType  String    // "PERCENTAGE" or "FIXED"
+  discountType  String // "PERCENTAGE" or "FIXED"
   discountValue Float
   maxUses       Int?
   uses          Int       @default(0)
@@ -374,7 +414,7 @@ model AppNotification {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String
   message   String
-  type      String   // 'EMAIL_SENT', 'WHATSAPP_SENT', 'CLIENT_PAID', 'PARTIALLY_PAID', 'OVERDUE'
+  type      String // 'EMAIL_SENT', 'WHATSAPP_SENT', 'CLIENT_PAID', 'PARTIALLY_PAID', 'OVERDUE'
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -384,29 +424,29 @@ model AppNotification {
 // Support Ticket System
 // ─────────────────────────────────────────────
 model Ticket {
-  id        Int             @id @default(autoincrement())
-  resendId  String?         @unique // Id from Resend Inbound (for replies/threading)
+  id        Int      @id @default(autoincrement())
+  resendId  String?  @unique // Id from Resend Inbound (for replies/threading)
   subject   String
   fromEmail String
   fromName  String?
-  status    String          @default("OPEN") // OPEN, PENDING, CLOSED
-  priority  String          @default("MEDIUM") // LOW, MEDIUM, HIGH
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  status    String   @default("OPEN") // OPEN, PENDING, CLOSED
+  priority  String   @default("MEDIUM") // LOW, MEDIUM, HIGH
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Conversation history
-  messages  TicketMessage[]
+  messages TicketMessage[]
 
   // Link to user if email matches
-  userId    Int?
-  user      User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 }
 
 model TicketMessage {
   id        Int      @id @default(autoincrement())
   ticketId  Int
   ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  sender    String   // "ADMIN" or "USER"
+  sender    String // "ADMIN" or "USER"
   content   String   @db.Text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

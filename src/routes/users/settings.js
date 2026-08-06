@@ -35,6 +35,7 @@ async function settingsRoutes(fastify, opts) {
       invoiceIncludeAddress: invoiceConfig?.invoiceIncludeAddress ?? true,
       globalAutoChaser: notification?.globalAutoChaser ?? true,
       invoicePrefix: invoiceConfig?.invoicePrefix ?? "INV",
+      quotePrefix: invoiceConfig?.quotePrefix ?? "QUO",
       // Quota
       waSendsUsed: quota?.waSendsUsed ?? 0,
       emailSendsUsed: quota?.emailSendsUsed ?? 0,
@@ -136,6 +137,7 @@ async function settingsRoutes(fastify, opts) {
         invoiceIncludeCompanyName: data.invoiceIncludeCompanyName,
         invoiceIncludeAddress: data.invoiceIncludeAddress,
         invoicePrefix: data.invoicePrefix,
+        quotePrefix: data.quotePrefix,
       },
       create: {
         userId: request.user.id,
@@ -147,6 +149,7 @@ async function settingsRoutes(fastify, opts) {
         invoiceIncludeCompanyName: data.invoiceIncludeCompanyName ?? true,
         invoiceIncludeAddress: data.invoiceIncludeAddress ?? true,
         invoicePrefix: data.invoicePrefix ?? "INV",
+        quotePrefix: data.quotePrefix ?? "QUO",
       },
     });
 
