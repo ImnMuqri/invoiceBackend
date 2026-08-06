@@ -40,6 +40,36 @@ async function notificationRoutes(fastify, opts) {
       });
       return { success: true, count: result.count };
     });
+
+    /* DELETE one.
+       deleteMany rather than delete, scoped by userId: a plain delete on an id
+       that is not yours throws a record-not-found the caller can tell apart from
+       a successful one, which turns this into a way to probe for other people's
+       notification ids. This returns the same shape either way. */
+    protectedInstance.delete("/:id", async (request, reply) => {
+      const id = Number(request.params.id);
+      if (!Number.isInteger(id)) return reply.badRequest("Bad notification id");
+
+      const result = await prisma.appNotification.deleteMany({
+        where: { id, userId: request.user.id },
+      });
+      if (!result.count) return reply.notFound("Notification not found");
+      return { success: true, count: result.count };
+    });
+
+    /* DELETE many.
+       ?scope=read clears only what has been read, which is the safe sweep and
+       the one the UI offers by default. scope=all is the deliberate one. */
+    protectedInstance.delete("/", async (request, reply) => {
+      const scope = request.query?.scope === "all" ? "all" : "read";
+      const result = await prisma.appNotification.deleteMany({
+        where: {
+          userId: request.user.id,
+          ...(scope === "read" ? { isRead: true } : {}),
+        },
+      });
+      return { success: true, count: result.count, scope };
+    });
   });
 }
 
