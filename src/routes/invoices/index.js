@@ -3,6 +3,7 @@ async function invoiceRoutes(fastify, opts) {
   const { createNotification } = require("../../utils/notificationUtils");
   const { checkAndNotifyOverdue } = require("../../utils/invoiceUtils");
   const { assertCreationEnabled } = require("../../utils/systemGuards");
+  const { pickWritable } = require("../../utils/invoiceFields");
 
   // PUBLIC ROUTES (No Auth Required)
   // GET invoice by ID (Public for payment page)
@@ -224,7 +225,11 @@ async function invoiceRoutes(fastify, opts) {
 
       const invoice = await prisma.invoice.create({
         data: {
-          ...invoiceData,
+          /* Whitelisted, not spread. `taxRate` is sent by the builder to compute
+             the total in the browser and is not a column on this table — spread
+             straight in, Prisma rejects the whole create with "Unknown argument
+             `taxRate`". See utils/invoiceFields.js. */
+          ...pickWritable(invoiceData, "INVOICE"),
           fromCompanyName,
           fromPhone,
           amount,
@@ -319,7 +324,8 @@ async function invoiceRoutes(fastify, opts) {
       }
 
       const updateData = {
-        ...invoiceData,
+        // Same whitelist as create — this path had the identical hole.
+        ...pickWritable(invoiceData, "INVOICE"),
         fromCompanyName,
         fromPhone,
         template: template || "professional",

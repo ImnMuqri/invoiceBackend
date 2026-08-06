@@ -19,6 +19,7 @@
 const QUOTE_STATUSES = ["Draft", "Sent", "Accepted", "Declined", "Expired"];
 
 const { assertCreationEnabled } = require("../../utils/systemGuards");
+const { pickWritable } = require("../../utils/invoiceFields");
 
 async function quoteRoutes(fastify, opts) {
   const { prisma } = fastify;
@@ -134,7 +135,8 @@ async function quoteRoutes(fastify, opts) {
 
         const quote = await prisma.invoice.create({
           data: {
-            ...rest,
+            /* Whitelisted — the builder posts taxRate, which is not a column. */
+            ...pickWritable(rest, "QUOTE"),
             kind: "QUOTE",
             amount,
             status: QUOTE_STATUSES.includes(rest.status) ? rest.status : "Draft",
@@ -185,7 +187,7 @@ async function quoteRoutes(fastify, opts) {
         : rest.amount;
 
       const data = {
-        ...rest,
+        ...pickWritable(rest, "QUOTE"),
         ...(amount !== undefined ? { amount } : {}),
         dueDate: null,
         ...(rest.validUntil !== undefined
