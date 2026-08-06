@@ -52,13 +52,21 @@ async function dashboardRoutes(fastify, opts) {
           prisma.invoice.groupBy({
             by: ["status", "currency"],
             where: { kind: "INVOICE", userId: request.user.id },
-            _sum: { amount: true },
+            /* amountPaid too: an invoice's contribution to "outstanding" is
+               what is LEFT on it, not its face value. */
+            _sum: { amount: true, amountPaid: true },
           }),
           prisma.invoice.count({
             where: {
               kind: "INVOICE",
               userId: request.user.id,
-              OR: [{ status: "Overdue" }, { status: "Pending", dueDate: { lt: now } }],
+              OR: [
+                { status: "Overdue" },
+                /* Partially Paid past its due date is still late. It was
+                   missing here, so paying part of a late invoice made it
+                   disappear from the overdue count. */
+                { status: { in: ["Pending", "Partially Paid"] }, dueDate: { lt: now } },
+              ],
             },
           }),
           prisma.client.count({ where: { userId: request.user.id } }),
@@ -77,17 +85,43 @@ async function dashboardRoutes(fastify, opts) {
           }),
         ]);
 
-      const sumWhere = (statuses) =>
-        invoiceTotals
-          .filter((row) => statuses.includes(row.status))
-          .reduce(
-            (sum, row) =>
-              sum + convertAmount(row._sum.amount || 0, row.currency, targetCurrency),
-            0,
-          );
+      /* "Partially Paid" is a real status — the PUT handler sets it whenever a
+         payment lands that does not cover the total, and the reminder cron
+         chases it. Neither figure below knew about it:
 
-      const totalRevenue = sumWhere(["Paid"]);
-      const outstandingAmount = sumWhere(["Pending", "Overdue"]);
+           - outstanding filtered ["Pending", "Overdue"], so an invoice with a
+             part payment against it counted as ZERO owed. Take RM200 on a
+             RM500 invoice and the RM300 still due vanished from the dashboard.
+           - revenue counted only invoices marked Paid, so the RM200 that had
+             actually arrived was not counted either. The money was in neither
+             number.
+
+         Both now work from what has been received rather than from the label. */
+      const isSettled = (s) => s === "Paid";
+      const isDead = (s) => s === "Cancelled";
+
+      const convertRow = (value, row) =>
+        convertAmount(value || 0, row.currency, targetCurrency);
+
+      const totalRevenue = invoiceTotals.reduce((sum, row) => {
+        if (isDead(row.status)) return sum;
+        /* A settled invoice contributes its face value: older rows were marked
+           Paid by paths that never wrote amountPaid, so trusting that column
+           alone here would silently erase historical revenue. Everything else
+           contributes only what has actually been received. */
+        const received = isSettled(row.status)
+          ? row._sum.amount
+          : row._sum.amountPaid;
+        return sum + convertRow(received, row);
+      }, 0);
+
+      const outstandingAmount = invoiceTotals.reduce((sum, row) => {
+        if (isSettled(row.status) || isDead(row.status)) return sum;
+        /* Floored at zero so an overpayment on one invoice cannot subtract from
+           what another still owes. */
+        const left = Math.max(0, (row._sum.amount || 0) - (row._sum.amountPaid || 0));
+        return sum + convertRow(left, row);
+      }, 0);
 
       /* Two queries, not 1 + 2N.
          This used to loop the top clients and, for each, run a findUnique AND
