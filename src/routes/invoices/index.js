@@ -96,7 +96,16 @@ async function invoiceRoutes(fastify, opts) {
 
     try {
       const pdfBuffer = await fastify.generatePDF(publicUrl);
-      const filename = isReceipt ? `Receipt-${invoice.invoiceNumber}.pdf` : `Invoice-${invoice.invoiceNumber}.pdf`;
+      /* Quotations render through this same route — the export page reads
+         `kind` and draws a quotation — so the filename has to follow, or a
+         client receives "Invoice-QUO-0001.pdf" for something that is explicitly
+         not an invoice. */
+      const noun = isReceipt
+        ? "Receipt"
+        : invoice.kind === "QUOTE"
+          ? "Quotation"
+          : "Invoice";
+      const filename = `${noun}-${invoice.invoiceNumber}.pdf`;
       
       reply
         .header("Content-Type", "application/pdf")
