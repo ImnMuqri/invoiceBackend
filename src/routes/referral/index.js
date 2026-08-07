@@ -48,13 +48,38 @@ async function referralRoutes(fastify, opts) {
 
   // POST /api/referral/claim
   fastify.post("/claim", async (request, reply) => {
-    const { rewardType } = request.body; // "PRO" or "MAX"
-    const cost = rewardType === "PRO" ? 5 : 10;
+    /* rewardType came straight off the request body and was written into
+       user.plan unchecked, with `cost = rewardType === "PRO" ? 5 : 10` — so any
+       string that was not "PRO" cost 10 credits and became the caller's plan.
+       POSTing {"rewardType":"ANYTHING"} wrote ANYTHING into the plan column.
+
+       That is no longer an escalation, because usage.js resolves an unknown
+       plan to FREE, but it is still a user writing arbitrary data into the
+       column that governs their entitlements — and before that change it was a
+       genuine self-upgrade. Only real, active, paid plans are claimable, and
+       the price is looked up rather than inferred from "not PRO". */
+    const REWARD_COST = { PRO: 5, MAX: 10 };
+
+    const wanted = String(request.body?.rewardType || "").toUpperCase();
+    const cost = REWARD_COST[wanted];
+    if (!cost) {
+      return reply.badRequest("That is not a claimable reward.");
+    }
+
+    const plans = (await fastify.getPlans()) || [];
+    const rewardPlan = plans.find(
+      (p) => p.isActive !== false && String(p.name).toUpperCase() === wanted,
+    );
+    if (!rewardPlan) {
+      return reply.badRequest("That plan is not available right now.");
+    }
+    const rewardType = rewardPlan.name;
 
     const user = await prisma.user.findUnique({
       where: { id: request.user.id },
     });
 
+    if (!user) return reply.unauthorized();
     if (user.referralCredits < cost) {
       return reply.badRequest("Insufficient referral credits");
     }

@@ -191,7 +191,29 @@ async function cronPlugin(fastify, opts) {
     const profile = user.profile || {};
 
     try {
-      await fastify.usage.checkAndIncrement(user.id, "waReminder");
+      /* Spec 01's single most important rule: never silently drop a scheduled
+         reminder. Out of WhatsApp allowance means the reminder goes by EMAIL,
+         recorded as downgraded — it does not mean the client hears nothing.
+         An invoice chased twice and then abandoned is worse than one never
+         chased, because the user blames us for the unpaid invoice. */
+      const decision = await fastify.chase.canChase(user.id, invoice.id);
+      if (!decision.allowed) {
+        fastify.log.info(
+          { invoiceId: invoice.id, reason: decision.reason },
+          "WhatsApp reminder downgraded to email",
+        );
+        await sendEmailReminder(user, invoice);
+        await fastify.chase.logMessage({
+          userId: user.id,
+          invoiceId: invoice.id,
+          channel: "EMAIL",
+          purpose: "REMINDER",
+          downgraded: true,
+          downgradeReason: decision.reason,
+        });
+        await fastify.chase.notifyDowngradeOnce(user.id);
+        return;
+      }
 
       const template =
         notif.whatsappReminderTemplate ||
@@ -223,6 +245,20 @@ async function cronPlugin(fastify, opts) {
         message,
         credentials,
       );
+
+      /* Consumed AFTER the provider accepted it. Charging the allowance before
+         the send would burn a chased invoice on a message that never left. */
+      await fastify.chase.consumeChase(user.id, invoice.id, decision);
+      await fastify.chase.logMessage({
+        userId: user.id,
+        invoiceId: invoice.id,
+        channel: "WHATSAPP",
+        purpose: "REMINDER",
+        /* Reminder copy is transactional, so it qualifies as utility — which is
+           materially cheaper than marketing in Malaysia. Logged per message so
+           the bill can be reconciled against what was actually sent. */
+        category: "UTILITY",
+      });
 
       await fastify.prisma.invoice.update({
         where: { id: invoice.id },

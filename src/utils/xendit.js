@@ -136,7 +136,36 @@ async function cancelRecurringPlan(planId) {
   }
 }
 
+/**
+ * A one-off charge, for top-ups (spec 01).
+ *
+ * Deliberately not a recurring plan: a top-up is a single purchase of extra
+ * chased invoices for the current period, and it does not roll over. Xendit's
+ * Invoice API is the right primitive — it returns a hosted payment page and
+ * fires the same webhook infrastructure on settlement.
+ */
+async function createOneOffCharge({ externalId, amount, description, payerEmail, successUrl, failureUrl }) {
+  const response = await axios.post(
+    "https://api.xendit.co/v2/invoices",
+    {
+      external_id: externalId,
+      amount,
+      description,
+      payer_email: payerEmail,
+      currency: "MYR",
+      success_redirect_url: successUrl,
+      failure_redirect_url: failureUrl,
+      /* Short window on purpose: this buys headroom for the CURRENT period, so
+         a link paid three weeks later would credit a period that has closed. */
+      invoice_duration: 86400,
+    },
+    { headers: { Authorization: getAuthToken(), "Content-Type": "application/json" } },
+  );
+  return { id: response.data.id, checkoutUrl: response.data.invoice_url };
+}
+
 module.exports = {
+  createOneOffCharge,
   createRecurringPlan,
   cancelRecurringPlan,
 };

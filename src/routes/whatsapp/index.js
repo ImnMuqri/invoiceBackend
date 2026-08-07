@@ -24,9 +24,6 @@ async function whatsappRoutes(fastify, opts) {
       const { id } = request.params;
 
       try {
-        // Usage check
-        await fastify.usage.checkAndIncrement(request.user.id, "waSend");
-
         const invoice = await fastify.prisma.invoice.findUnique({
           where: { id: parseInt(id), userId: request.user.id },
           include: {
@@ -37,6 +34,20 @@ async function whatsappRoutes(fastify, opts) {
         if (!invoice) return reply.notFound("Invoice not found");
         if (!invoice.client.phone)
           return reply.badRequest("Client does not have a phone number");
+
+        /* Metering is per invoice now, not per message, so the check has to sit
+           after we know which invoice this is. The first WhatsApp message for an
+           invoice consumes one chased invoice; later messages for the same
+           invoice in the same period consume none, but still count against the
+           per-invoice ceiling. */
+        const decision = await fastify.chase.canChase(request.user.id, invoice.id);
+        if (!decision.allowed) {
+          return reply.forbidden(
+            decision.reason === "chased invoice allowance exhausted"
+              ? "Your WhatsApp allowance for this period is used up. Automatic reminders will still go out by email, or you can top up."
+              : `Cannot send over WhatsApp: ${decision.reason}`,
+          );
+        }
 
         const user = await fastify.prisma.user.findUnique({
           where: { id: request.user.id },
@@ -84,6 +95,15 @@ async function whatsappRoutes(fastify, opts) {
           credentials,
         );
 
+        await fastify.chase.consumeChase(request.user.id, invoice.id, decision);
+        await fastify.chase.logMessage({
+          userId: request.user.id,
+          invoiceId: invoice.id,
+          channel: "WHATSAPP",
+          purpose: "SEND",
+          category: "UTILITY",
+        });
+
         await fastify.prisma.invoice.update({
           where: { id: parseInt(id) },
           data: { whatsappStatus: "Sent" },
@@ -105,9 +125,6 @@ async function whatsappRoutes(fastify, opts) {
       const { id } = request.params;
 
       try {
-        // Usage check
-        await fastify.usage.checkAndIncrement(request.user.id, "waReminder");
-
         const invoice = await fastify.prisma.invoice.findUnique({
           where: { id: parseInt(id), userId: request.user.id },
           include: {
@@ -118,6 +135,20 @@ async function whatsappRoutes(fastify, opts) {
         if (!invoice) return reply.notFound("Invoice not found");
         if (!invoice.client.phone)
           return reply.badRequest("Client does not have a phone number");
+
+        /* Metering is per invoice now, not per message, so the check has to sit
+           after we know which invoice this is. The first WhatsApp message for an
+           invoice consumes one chased invoice; later messages for the same
+           invoice in the same period consume none, but still count against the
+           per-invoice ceiling. */
+        const decision = await fastify.chase.canChase(request.user.id, invoice.id);
+        if (!decision.allowed) {
+          return reply.forbidden(
+            decision.reason === "chased invoice allowance exhausted"
+              ? "Your WhatsApp allowance for this period is used up. Automatic reminders will still go out by email, or you can top up."
+              : `Cannot send over WhatsApp: ${decision.reason}`,
+          );
+        }
 
         const user = await fastify.prisma.user.findUnique({
           where: { id: request.user.id },
@@ -164,6 +195,15 @@ async function whatsappRoutes(fastify, opts) {
           message,
           credentials,
         );
+
+        await fastify.chase.consumeChase(request.user.id, invoice.id, decision);
+        await fastify.chase.logMessage({
+          userId: request.user.id,
+          invoiceId: invoice.id,
+          channel: "WHATSAPP",
+          purpose: "REMINDER",
+          category: "UTILITY",
+        });
 
         await fastify.prisma.invoice.update({
           where: { id: parseInt(id) },

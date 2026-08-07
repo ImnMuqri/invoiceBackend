@@ -1,13 +1,35 @@
+const { safeEqual } = require("../../utils/gateways/compare");
+
 async function xenditWebhooks(fastify, opts) {
   const { prisma } = fastify;
 
   fastify.post("/xendit", async (request, reply) => {
-    // 🛡️ Security: Verify X-Callback-Token
+    /* Verify the callback token — and REFUSE when it is not configured.
+       This read `if (callbackToken && headerToken !== callbackToken)`, so an
+       unset XENDIT_CALLBACK_TOKEN skipped verification entirely. It is not in
+       the required-env list either, so the service boots happily without it.
+
+       That combination is a complete self-upgrade: this handler parses the plan
+       out of `reference_id`, so an unauthenticated
+           POST /api/webhooks/xendit  {"data":{"reference_id":"sub_3_MAX_1","status":"ACTIVE"}}
+       granted user 3 the MAX plan, for free, with no payment and no session.
+
+       Failing closed has a real cost: if the token is missing in production,
+       genuine payments stop upgrading anyone until it is set. That is the right
+       side to fail on — a paid customer waiting on support beats anyone in the
+       world minting themselves a plan — but it does mean the variable MUST be
+       set in Railway. */
     const callbackToken = process.env.XENDIT_CALLBACK_TOKEN;
     const headerToken = request.headers["x-callback-token"];
 
-    if (callbackToken && headerToken !== callbackToken) {
-      fastify.log.warn("Unauthorized Xendit webhooks attempt detected");
+    if (!callbackToken) {
+      fastify.log.error(
+        "XENDIT_CALLBACK_TOKEN is not set — refusing every payment webhook. Set it in the environment.",
+      );
+      return reply.unauthorized("Callback verification is not configured");
+    }
+    if (!safeEqual(callbackToken, String(headerToken || ""))) {
+      fastify.log.warn("Unauthorized Xendit webhook attempt");
       return reply.unauthorized("Invalid callback token");
     }
 
@@ -20,7 +42,35 @@ async function xenditWebhooks(fastify, opts) {
       // Xendit Recurring webhook payloads might be wrapped { event, data } or just the object directly
       const data = payload.data || payload;
 
-      if (!data || !data.reference_id) return;
+      if (!data) return;
+
+      /* Top-ups (spec 01) come through the same webhook as subscriptions, but
+         they are one-off Invoice API events rather than recurring cycles, so
+         they are matched on the external_id we set at purchase time. Handled
+         before the subscription branch because the two payload shapes overlap
+         and a top-up must never be mistaken for a plan activation. */
+      const externalId = data.external_id || "";
+      if (externalId.startsWith("topup_")) {
+        const settled = ["PAID", "SETTLED"].includes(String(data.status || "").toUpperCase());
+        if (!settled) return;
+
+        const topUpId = parseInt(externalId.split("_")[1], 10);
+        if (!Number.isInteger(topUpId)) return;
+
+        /* updateMany with a status guard, so a duplicate delivery of the same
+           webhook cannot activate the same balance twice. */
+        const result = await prisma.topUp.updateMany({
+          where: { id: topUpId, status: "PENDING" },
+          data: { status: "ACTIVE" },
+        });
+        if (result.count) {
+          fastify.log.info({ topUpId }, "Top-up activated");
+        }
+        return;
+      }
+
+
+      if (!data.reference_id) return;
 
       const eventType = payload.event || "";
       const isActivation =
@@ -44,11 +94,29 @@ async function xenditWebhooks(fastify, opts) {
           const user = await prisma.user.findUnique({
             where: { id: userId },
           });
+          if (!user) return;
+
+          /* planName is parsed out of reference_id. Even with the token now
+             enforced, writing an unvalidated string into user.plan is how a
+             typo becomes a customer silently dropped to the safety floor —
+             usage.js resolves anything it does not recognise to FREE. Only
+             names that exist as plans are written. */
+          const known = (await fastify.getPlans()) || [];
+          const match = known.find(
+            (p) => String(p.name).toUpperCase() === String(planName).toUpperCase(),
+          );
+          if (!match) {
+            fastify.log.error(
+              { planName, referenceId, userId },
+              "Xendit webhook named a plan that does not exist; ignoring",
+            );
+            return;
+          }
 
           await prisma.user.update({
             where: { id: userId },
             data: {
-              plan: planName,
+              plan: match.name,
               xenditSubscriptionId: xenditSubscriptionId,
             },
           });

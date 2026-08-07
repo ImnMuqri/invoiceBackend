@@ -164,14 +164,22 @@ async function userRoutes(fastify, opts) {
       where: { name: { equals: plan, mode: "insensitive" }, isActive: true },
     });
 
-    if (plan.toUpperCase() !== "FREE" && !planData) {
-      if (!["PRO", "MAX"].includes(plan.toUpperCase())) {
-        return reply.badRequest("Invalid plan");
-      }
-    }
+    /* Downgrading to Free is a cancellation. It is handled below and needs no
+       Plan row, so it short-circuits the pricing checks that follow. */
+    const isCancellation = String(plan || "").toUpperCase() === "FREE";
 
-    const resolvedPlanName = planData ? planData.name : plan.toUpperCase();
-    const resolvedPlanPrice = planData ? planData.price : (resolvedPlanName === "PRO" ? 59 : 99);
+
+    /* The Plan row is the only source of a price. The fallback here used to be
+       `PRO ? 59 : 99` — a fourth hardcoded pricing source, already stale against
+       the table, and the one that would actually charge the customer. Charging
+       a number nobody can see in the admin panel is not a fallback worth
+       having: if the plan is not in the table, refuse. */
+    if (!isCancellation && !planData) {
+      request.log.error({ plan }, "Subscribe attempted for a plan with no active row");
+      return reply.badRequest("That plan is not available.");
+    }
+    const resolvedPlanName = isCancellation ? "FREE" : planData.name;
+    const resolvedPlanPrice = isCancellation ? 0 : planData.price;
 
     const { createRecurringPlan, cancelRecurringPlan } = require("../../utils/xendit");
     const user = await prisma.user.findUnique({ where: { id: request.user.id } });

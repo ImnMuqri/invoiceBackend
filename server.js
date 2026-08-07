@@ -23,6 +23,22 @@ function validateEnv() {
     "GROQ_API_KEY",
     "ENCRYPTION_KEY",
   ];
+  /* Warned about, not required.
+     Adding XENDIT_CALLBACK_TOKEN to `required` would refuse to boot without it,
+     which on the next deploy would take a running production down over a
+     variable that has been absent for months. But it is not optional either:
+     the payment webhook now fails closed, so with this unset every genuine
+     subscription payment is rejected and nobody is ever upgraded — silently,
+     because the only symptom is a customer who paid and did not get their plan.
+
+     Loud once at startup is the right volume for that. */
+  if (!process.env.XENDIT_CALLBACK_TOKEN) {
+    console.warn(
+      "⚠️  XENDIT_CALLBACK_TOKEN is not set. Subscription payment webhooks will be " +
+        "REJECTED, so paid upgrades will not apply. Set it from the Xendit dashboard.",
+    );
+  }
+
   const missing = required.filter((k) => !process.env[k]);
   if (missing.length > 0) {
     console.error(`❌ FATAL: Missing environment variables: ${missing.join(", ")}`);
@@ -149,6 +165,8 @@ async function build() {
   await fastify.register(require("./src/plugins/email"));
   await fastify.register(require("./src/plugins/whatsapp"));
   await fastify.register(require("./src/plugins/usage"));
+  /* After usage: chase metering reads limitsFor() from it. */
+  await fastify.register(require("./src/plugins/chase"));
   /* Background jobs — the 09:00 reminder sweep and the 01:00 overdue pass.
      Gated on ROLE so this file can serve both a web service and a worker.
 
