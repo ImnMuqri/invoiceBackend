@@ -1,4 +1,8 @@
 const bcrypt = require("bcryptjs");
+const {
+  screenSignup,
+  STATUS: REFERRAL_STATUS,
+} = require("../../utils/referral");
 
 async function authRoutes(fastify, opts) {
   const { prisma } = fastify;
@@ -12,10 +16,32 @@ async function authRoutes(fastify, opts) {
       return reply.badRequest("User already exists");
     }
 
+    /* ── Referral attribution (spec 09) ────────────────────────────────────
+       Screened here, at signup, because this is the last moment both sides are
+       in front of us and nothing has been paid yet. A referral that fails
+       screening is still RECORDED — as REJECTED, with the reason — rather than
+       dropped: "why did I not get my credit" needs an answer, and silently
+       ignoring the code produces an account that looks like it arrived on its
+       own. The reward itself is granted much later, on first payment. */
     let referrerId = null;
+    let referralScreen = null;
+    let referrerRecord = null;
+
     if (referralCode) {
-      const referrer = await prisma.user.findUnique({ where: { referralCode } });
-      if (referrer) referrerId = referrer.id;
+      referrerRecord = await prisma.user.findUnique({
+        where: { referralCode: String(referralCode).trim().toUpperCase() },
+        select: { id: true, email: true },
+      });
+
+      referralScreen = screenSignup({
+        referrer: referrerRecord,
+        candidateEmail: email,
+      });
+
+      /* referredById is set only for referrals that PASSED. A rejected one
+         leaves the account unattached, so nothing downstream — the dashboard,
+         the webhook — has to re-check whether it was legitimate. */
+      if (referrerRecord && referralScreen.ok) referrerId = referrerRecord.id;
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -38,6 +64,28 @@ async function authRoutes(fastify, opts) {
         manualPayment:  { create: {} },
       },
     });
+
+    /* The ledger row. Created after the user exists because it points at both
+       accounts, and outside the create above because a failure here must not
+       cost somebody their signup — a missing referral record is a support
+       ticket, a failed registration is a lost customer. */
+    if (referrerRecord) {
+      try {
+        await prisma.referral.create({
+          data: {
+            referrerId: referrerRecord.id,
+            referredId: user.id,
+            status: referralScreen?.ok ? REFERRAL_STATUS.PENDING : REFERRAL_STATUS.REJECTED,
+            rejectedReason: referralScreen?.ok ? null : referralScreen?.reason || null,
+          },
+        });
+      } catch (err) {
+        /* The unique constraint on referredId makes this idempotent: a retried
+           registration cannot produce two ledger rows for one account, and
+           therefore cannot pay the reward twice. */
+        fastify.log.warn({ err, userId: user.id }, "Referral record not created");
+      }
+    }
 
     const accessToken = fastify.jwt.sign(
       { id: user.id, email: user.email, role: user.role },

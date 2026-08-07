@@ -1,4 +1,5 @@
 const { safeEqual } = require("../../utils/gateways/compare");
+const { convertReferral, reverseReferral } = require("../../utils/referralLedger");
 
 async function xenditWebhooks(fastify, opts) {
   const { prisma } = fastify;
@@ -121,28 +122,13 @@ async function xenditWebhooks(fastify, opts) {
             },
           });
 
-          // Referral logic: If user was referred and this is their first subscription
-          if (
-            user &&
-            user.referredById &&
-            !user.referralCreditEarned &&
-            planName !== "FREE" &&
-            user.plan === "FREE"
-          ) {
-            await prisma.user.update({
-              where: { id: user.id },
-              data: { referralCreditEarned: true },
-            });
-
-            await prisma.user.update({
-              where: { id: user.referredById },
-              data: {
-                referralCredits: { increment: 1 },
-              },
-            });
-            fastify.log.info(
-              `Incremented referral credits for Referrer ${user.referredById} due to User ${userId} first-time subscription`,
-            );
+          /* Referral conversion (spec 09).
+             The trigger is the referred account's FIRST SUCCESSFUL PAID
+             payment, which is this moment and not signup — rewarding signups
+             pays for empty accounts, and an incentive to create empty accounts
+             is an incentive to create fake ones. */
+          if (user && planName !== "FREE") {
+            await convertReferral(fastify, prisma, user.id);
           }
 
           // Also update the dedicated Subscription table record
@@ -219,6 +205,36 @@ async function xenditWebhooks(fastify, opts) {
       } else if (eventType === "payment.succeeded") {
         // If it's a payment cycle success
         // Handle renewal logic if needed, or rely on recurring.plan hook
+      } else if (
+        /* Referral reversal (spec 09). The credit was granted off the back of
+           a payment; if that payment is undone, so is the credit.
+
+           Matched on a list of event names rather than one, because Xendit has
+           renamed these across API versions and a reversal that silently stops
+           firing is indistinguishable from one that never had to. An event we
+           do not recognise falls through and does nothing, which is the safe
+           direction: failing to reverse is a small loss, reversing on the
+           wrong event takes credit from somebody who earned it. */
+        [
+          "payment.refunded",
+          "refund.succeeded",
+          "payment.chargeback",
+          "dispute.created",
+        ].includes(eventType)
+      ) {
+        const refundedUserId = Number(
+          data.reference_id?.toString().split("_").pop() ||
+            data.customer_id ||
+            NaN,
+        );
+        if (Number.isInteger(refundedUserId)) {
+          await reverseReferral(fastify, prisma, refundedUserId, eventType);
+        } else {
+          fastify.log.warn(
+            { eventType, referenceId: data.reference_id },
+            "Refund webhook carried no usable user id; referral not reversed",
+          );
+        }
       }
     } catch (err) {
       fastify.log.error("Xendit Webhook processing error:", err);

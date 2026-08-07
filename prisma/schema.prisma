@@ -30,11 +30,32 @@ model User {
 
   // Referral system
   referralCode         String? @unique
+  /// Legacy counter: a COUNT of referrals, spendable via /api/referral/claim
+  /// for a free month. Kept and still honoured so nobody loses what they have
+  /// already earned, but nothing new is written to it — spec 09 rewards money
+  /// credit instead, which needs no claim step and no payout mechanism.
   referralCredits      Int     @default(0)
   referralCreditEarned Boolean @default(false)
   referredById         Int?
   referredBy           User?   @relation("UserReferrals", fields: [referredById], references: [id])
   referrals            User[]  @relation("UserReferrals")
+
+  /// Account credit, in SEN, applied against the next subscription payment.
+  ///
+  /// Sen because every money value in this codebase is sen; a "credits" integer
+  /// that sometimes meant ringgit and sometimes meant a count is how the two
+  /// got confused in the first place. Never negative — reversal floors at zero
+  /// rather than putting an account into debt over a chargeback it did not
+  /// commit.
+  referralCreditSen    Int     @default(0)
+
+  /// When the referral link was clicked, for the attribution window. Set at
+  /// signup from the click record; null for accounts that arrived directly.
+  referredAt           DateTime?
+
+  referralsMade        Referral[] @relation("ReferralReferrer")
+  referralReceived     Referral?  @relation("ReferralReferred")
+  referralClicks       ReferralClick[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -147,6 +168,24 @@ model UserNotification {
   // AI Insights cache — stored here to avoid bloating the User row
   aiInsights               String?
   lastAiInsightAt          DateTime?
+
+  /// ── The share prompt (spec 09) ────────────────────────────────────────
+  ///
+  /// Asking somebody to recommend the product is a favour, and when you ask
+  /// decides whether it feels like one. The spec names the right moment: just
+  /// after an invoice is marked paid following a reminder WE sent — the one
+  /// moment the product has demonstrably done the thing it promises, rather
+  /// than a random Tuesday.
+  ///
+  /// Set when that happens; cleared when the prompt is shown or dismissed.
+  /// Null means there is nothing to celebrate and nothing should be asked.
+  sharePromptEligibleAt    DateTime?
+  /// When it was last put in front of them, for the frequency cap.
+  sharePromptShownAt       DateTime?
+  /// Two dismissals and it never appears again. Somebody who has said no
+  /// twice has answered the question, and a third ask is nagging.
+  sharePromptDismissals    Int       @default(0)
+
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 }
@@ -179,6 +218,21 @@ model UserInvoiceConfig {
   /// not as a way to build the block up field by field.
   invoiceIncludeTaxIdentifiers    Boolean  @default(true)
   invoiceIncludeClientIdentifiers Boolean  @default(true)
+
+  /// "Sent with InvoKita" on the public payment page and the invoice PDF
+  /// (spec 09).
+  ///
+  /// NOT the whole rule — only the paid half of it. A free account always shows
+  /// attribution whatever this column says, because it is what the free tier
+  /// pays with. Every paid plan shows it by DEFAULT and can switch it off here,
+  /// deliberately not gated to the top tier: Pro and Max differ on volume, and
+  /// making somebody upgrade twice to remove a line of our branding from their
+  /// own invoice is the kind of thing that loses the account rather than
+  /// growing it.
+  ///
+  /// The two halves are combined in exactly one place — utils/attribution.js —
+  /// so the PDF and the payment page cannot disagree about what a client sees.
+  attributionEnabled              Boolean  @default(true)
   createdAt                       DateTime @default(now())
   updatedAt                       DateTime @updatedAt
 
@@ -233,10 +287,22 @@ model Client {
   userId             Int
   user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   name               String
-  email              String
+  /// Both nullable since spec 08.
+  ///
+  /// They were NOT NULL, which meant the only way to store a client you have a
+  /// phone number for and nothing else was to write "" into both — and an empty
+  /// string is a value, so the duplicate check on email then matched every
+  /// contactless client against every other one. The import has to be able to
+  /// take a name and a mobile number, because that is what a phone contact list
+  /// actually contains.
+  ///
+  /// Null means "not known". Nothing in the product requires either to exist;
+  /// what delivery requires is phone OR email, which is a rule about the pair
+  /// and cannot be expressed as NOT NULL on one column.
+  email              String?
   phone              String?
   address            String?
-  company            String
+  company            String?
   averageDelayDays   Int                 @default(0)
   totalRevenue       Int                 @default(0)
   profitMargin       Float               @default(0)
@@ -255,7 +321,17 @@ model Client {
   /// relevant to ask for at all.
   isIndividual       Boolean @default(false)
 
+  /// The user's own shorthand about this client — "pays late", "invoice via
+  /// Siti". Imported (spec 08) because a spreadsheet of clients nearly always
+  /// has a column like this. Never rendered on a document: it is a note to
+  /// self, not a note to the client.
+  notes              String?
+
   @@index([userId])
+  /// Import matches on phone, then email, then exact name. Without these a
+  /// 200-row paste is 600 sequential scans of the whole table.
+  @@index([userId, phone])
+  @@index([userId, email])
 }
 
 // ─────────────────────────────────────────────
@@ -759,6 +835,103 @@ model Subscription {
 // ─────────────────────────────────────────────
 // PromoCode — Discount codes for subscriptions
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// Referral — one row per attributed signup (spec 09)
+// ─────────────────────────────────────────────
+/// The reward LEDGER, not a counter.
+///
+/// The previous design was a single integer on User that the subscription
+/// webhook incremented. That could record that a reward happened and nothing
+/// else — so it could not answer "which referral earned this", could not be
+/// reversed when a subscription was refunded, and could not be capped per
+/// period, all three of which the spec requires. An integer is a running total
+/// with the history thrown away, and reversal needs the history.
+///
+/// One row per referred account, created at signup in PENDING and moved to
+/// CONVERTED when that account makes its first successful PAID payment — not at
+/// signup, so empty accounts earn nothing.
+model Referral {
+  id Int @id @default(autoincrement())
+
+  referrerId Int
+  referrer   User @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+
+  /// Unique: an account can be referred once, by one person, forever. Without
+  /// this constraint a second signup row for the same account would pay the
+  /// reward twice.
+  referredId Int  @unique
+  referred   User @relation("ReferralReferred", fields: [referredId], references: [id], onDelete: Cascade)
+
+  /// "PENDING" | "CONVERTED" | "REVERSED" | "REJECTED"
+  ///   PENDING   signed up, has not paid yet
+  ///   CONVERTED first successful paid payment; credit granted
+  ///   REVERSED  that payment was refunded or charged back; credit taken back
+  ///   REJECTED  failed an anti-abuse check; never earns anything
+  status String @default("PENDING")
+
+  /// Why it was rejected, when it was. Recorded rather than inferred so a
+  /// support conversation about "why did I not get my credit" has an answer.
+  rejectedReason String?
+
+  /// Credit granted to the REFERRER, in sen. Zero until conversion, and left at
+  /// its granted value after a reversal — `status` says whether it still
+  /// counts, so the amount that was once granted is not erased from the record.
+  creditSen Int @default(0)
+
+  /// Discount given to the REFERRED account on their first month, in sen. The
+  /// spec asks for this so the link is worth sharing rather than feeling like
+  /// the referrer is taking a commission from a friend.
+  discountSen Int @default(0)
+
+  /// The period ("YYYY-MM", Asia/Kuala_Lumpur) the credit counted against, for
+  /// the per-period cap. Null until converted.
+  creditPeriod String?
+
+  clickedAt   DateTime?
+  signedUpAt  DateTime  @default(now())
+  convertedAt DateTime?
+  reversedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([referrerId, status])
+  @@index([referrerId, creditPeriod])
+}
+
+// ─────────────────────────────────────────────
+// ReferralClick — the top of the funnel (spec 09)
+// ─────────────────────────────────────────────
+/// Clicks are counted because the spec asks the referrals page to show them,
+/// and because clicks-without-signups and signups-without-conversions are
+/// different problems with different fixes.
+///
+/// Deliberately thin. No cookies, no fingerprinting, no cross-site identifiers:
+/// this counts that a link was opened and roughly by how many distinct people,
+/// which is all the page claims to show. `visitorHash` is a salted hash of IP +
+/// user agent, so it can dedupe a refresh without storing anything that
+/// identifies the person.
+model ReferralClick {
+  id Int @id @default(autoincrement())
+
+  referrerId Int
+  referrer   User @relation(fields: [referrerId], references: [id], onDelete: Cascade)
+
+  /// Salted hash, never the raw address. Nullable because a click still counts
+  /// if the hash cannot be computed.
+  visitorHash String?
+  /// Where it was shared, when the link says so (?via=wa). Untrusted input,
+  /// stored short and only ever displayed back to the referrer.
+  source      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([referrerId, createdAt])
+  /// Dedupes a refresh within the same day without storing anything that
+  /// identifies who refreshed.
+  @@index([referrerId, visitorHash])
+}
+
 model PromoCode {
   id            Int       @id @default(autoincrement())
   code          String    @unique

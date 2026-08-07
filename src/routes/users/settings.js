@@ -1,4 +1,5 @@
 const taxIdentity = require("../../utils/taxIdentity");
+const { canRemoveAttribution, attributionFor } = require("../../utils/attribution");
 
 async function settingsRoutes(fastify, opts) {
   const { prisma } = fastify;
@@ -47,6 +48,23 @@ async function settingsRoutes(fastify, opts) {
       sstNumber: profile?.sstNumber ?? null,
       invoiceIncludeTaxIdentifiers: invoiceConfig?.invoiceIncludeTaxIdentifiers ?? true,
       invoiceIncludeClientIdentifiers: invoiceConfig?.invoiceIncludeClientIdentifiers ?? true,
+      /* Spec 09. Two values, because they answer different questions:
+         `attributionEnabled` is what the account has CHOSEN, and
+         `canRemoveAttribution` is whether the choice has any effect on this
+         plan. A free account sees the switch in the position it is actually in
+         — on — rather than a control that silently does nothing when pressed. */
+      attributionEnabled: invoiceConfig?.attributionEnabled ?? true,
+      canRemoveAttribution: canRemoveAttribution(user.plan),
+      /* The rendered object, not just the flag, so the builder PREVIEW can draw
+         the same footer the PDF will without re-deriving the rule or
+         re-typing the words. "What your client will see" has to actually be
+         what they see — this codebase has already shipped a preview that
+         promised a letterhead the client never received. */
+      attribution: attributionFor({
+        plan: user.plan,
+        enabled: invoiceConfig?.attributionEnabled,
+        surface: "preview",
+      }),
       /* Drives the single dismissable prompt. Computed here rather than in the
          page, so "has this user given us anything at all" has one definition
          and the prompt cannot disagree with the export about it. */
@@ -165,6 +183,7 @@ async function settingsRoutes(fastify, opts) {
         invoiceIncludeAddress: data.invoiceIncludeAddress,
         invoiceIncludeTaxIdentifiers: data.invoiceIncludeTaxIdentifiers,
         invoiceIncludeClientIdentifiers: data.invoiceIncludeClientIdentifiers,
+        attributionEnabled: data.attributionEnabled,
         invoicePrefix: data.invoicePrefix,
         quotePrefix: data.quotePrefix,
         creditNotePrefix: data.creditNotePrefix,
@@ -186,6 +205,7 @@ async function settingsRoutes(fastify, opts) {
         invoiceIncludeAddress: data.invoiceIncludeAddress ?? true,
         invoiceIncludeTaxIdentifiers: data.invoiceIncludeTaxIdentifiers ?? true,
         invoiceIncludeClientIdentifiers: data.invoiceIncludeClientIdentifiers ?? true,
+        attributionEnabled: data.attributionEnabled ?? true,
         invoicePrefix: data.invoicePrefix ?? "INV",
         quotePrefix: data.quotePrefix ?? "QUO",
         creditNotePrefix: data.creditNotePrefix ?? "CN",

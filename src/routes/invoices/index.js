@@ -1,5 +1,6 @@
 const { recalculate } = require("../../utils/invoiceMoney");
 const { verifyRenderToken, createRenderToken } = require("../../utils/renderToken");
+const { attributionFor } = require("../../utils/attribution");
 const taxIdentity = require("../../utils/taxIdentity");
 async function invoiceRoutes(fastify, opts) {
   const { prisma } = fastify;
@@ -83,6 +84,7 @@ async function invoiceRoutes(fastify, opts) {
               select: {
                 invoiceIncludeTaxIdentifiers: true,
                 invoiceIncludeClientIdentifiers: true,
+                attributionEnabled: true,
               },
             },
             paymentProviders: {
@@ -114,6 +116,19 @@ async function invoiceRoutes(fastify, opts) {
       invoice.user?.invoiceConfig?.invoiceIncludeTaxIdentifiers ?? true;
     invoice.showClientIdentifiers =
       invoice.user?.invoiceConfig?.invoiceIncludeClientIdentifiers ?? true;
+
+    /* Spec 09. The PDF is drawn from this payload, and the public payment page
+       from /api/pay — two different endpoints rendering the same document, so
+       both ask utils/attribution.js rather than deciding for themselves. The
+       failure that guards against is specific and visible to a paying
+       customer's client: attribution correctly stripped from the page they
+       were sent, and still printed on the PDF attached to it. */
+    invoice.attribution = attributionFor({
+      plan: invoice.user?.plan,
+      enabled: invoice.user?.invoiceConfig?.attributionEnabled,
+      surface: "pdf",
+    });
+
     if (invoice.user) delete invoice.user.invoiceConfig;
 
     // Fetch global system configuration for public toggles (Email/WA/Payments)

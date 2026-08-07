@@ -11,7 +11,10 @@
     "postinstall": "prisma generate",
     "test:einvoice": "node src/scripts/test-einvoice-scope.js",
     "test:quotes": "node src/scripts/test-quote-lifecycle.js",
-    "test": "npm run test:einvoice && npm run test:quotes"
+    "test": "npm run test:einvoice && npm run test:quotes && npm run test:import && npm run test:attribution && npm run test:referral",
+    "test:import": "node src/scripts/test-client-import.js",
+    "test:attribution": "node src/scripts/test-attribution.js",
+    "test:referral": "node src/scripts/test-referral.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

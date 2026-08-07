@@ -127,6 +127,31 @@ async function markInvoiceAsPaid(prisma, invoiceId, amountPaid = null) {
     },
   });
 
+  /* 5. The share prompt's qualifying event (spec 09).
+       An invoice paid AFTER a reminder we sent is the one moment the product
+       has demonstrably done the thing it promises. That — and not a random
+       Tuesday — is when it has earned the right to ask for a recommendation.
+
+       The condition is deliberately narrow. An invoice paid on time, before any
+       chasing, is a client being organised; we did nothing worth mentioning and
+       asking then would be asking for a favour we have not earned. Only a
+       reminder having actually gone out qualifies.
+
+       Wrapped, because this is bookkeeping hanging off a payment: a failure
+       here must never stop an invoice being marked paid. */
+  try {
+    const chased =
+      !!invoice.whatsappLastReminderSent || !!invoice.emailLastReminderSent;
+    if (chased) {
+      await prisma.userNotification.updateMany({
+        where: { userId: invoice.userId, sharePromptEligibleAt: null },
+        data: { sharePromptEligibleAt: now },
+      });
+    }
+  } catch (err) {
+    console.error("Share prompt eligibility not recorded:", err.message);
+  }
+
   return updatedInvoice;
 }
 

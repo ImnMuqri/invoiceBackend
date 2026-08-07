@@ -4,6 +4,7 @@ const Billplz = require("../../utils/gateways/billplz");
 const HitPay = require("../../utils/gateways/hitpay");
 const SenangPay = require("../../utils/gateways/senangpay");
 const { recordGatewayPayment, markInvoiceAsPaid, handlePaymentFailure } = require("../../utils/invoiceUtils");
+const { attributionFor } = require("../../utils/attribution");
 
 async function payRoutes(fastify, opts) {
   const { prisma } = fastify;
@@ -54,6 +55,7 @@ async function payRoutes(fastify, opts) {
               select: {
                 invoiceIncludeTaxIdentifiers: true,
                 invoiceIncludeClientIdentifiers: true,
+                attributionEnabled: true,
               },
             },
             paymentProviders: {
@@ -74,6 +76,17 @@ async function payRoutes(fastify, opts) {
       invoice.user?.invoiceConfig?.invoiceIncludeTaxIdentifiers ?? true;
     invoice.showClientIdentifiers =
       invoice.user?.invoiceConfig?.invoiceIncludeClientIdentifiers ?? true;
+
+    /* Spec 09. Decided here rather than on the page, so this surface and the
+       PDF cannot reach different answers — see utils/attribution.js. Null when
+       nothing should be drawn, so the template has no hidden-but-present
+       block to get wrong. */
+    invoice.attribution = attributionFor({
+      plan: invoice.user?.plan,
+      enabled: invoice.user?.invoiceConfig?.attributionEnabled,
+      surface: "pay",
+    });
+
     if (invoice.user) delete invoice.user.invoiceConfig;
 
     // Flatten manual payment fields for frontend compatibility

@@ -148,7 +148,25 @@ async function cronPlugin(fastify, opts) {
     }
   };
 
+  /**
+   * Returns true when the reminder actually went out.
+   *
+   * The return value exists because the WhatsApp path calls this as its
+   * fallback and then RECORDS a downgrade. Since spec 08 a client can have a
+   * phone number and no email address at all, so "send it by email instead"
+   * can now be impossible — and logging a downgrade for a message that was
+   * never sent would tell the user their client had been chased when nobody
+   * had. Silence is bad; a false record of contact is worse.
+   */
   const sendEmailReminder = async (user, invoice) => {
+    if (!invoice.client?.email) {
+      fastify.log.warn(
+        { invoiceId: invoice.id, clientId: invoice.clientId },
+        "Email reminder skipped: client has no email address",
+      );
+      return false;
+    }
+
     const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000")
       .replace(/['"]/g, "")
       .replace(/\/$/, "");
@@ -188,8 +206,10 @@ async function cronPlugin(fastify, opts) {
       fastify.log.info(
         `Auto Email Reminder sent for Invoice #${invoice.invoiceNumber}`,
       );
+      return true;
     } catch (err) {
       fastify.log.error(`Auto Email failed for #${invoice.id}: ${err.message}`);
+      return false;
     }
   };
 
@@ -213,16 +233,30 @@ async function cronPlugin(fastify, opts) {
           { invoiceId: invoice.id, reason: decision.reason },
           "WhatsApp reminder downgraded to email",
         );
-        await sendEmailReminder(user, invoice);
-        await fastify.chase.logMessage({
-          userId: user.id,
-          invoiceId: invoice.id,
-          channel: "EMAIL",
-          purpose: "REMINDER",
-          downgraded: true,
-          downgradeReason: decision.reason,
-        });
-        await fastify.chase.notifyDowngradeOnce(user.id);
+        const delivered = await sendEmailReminder(user, invoice);
+
+        /* Only logged when the email actually went.
+           Since spec 08 a client can have a phone number and no email, so the
+           fallback can now be impossible — and writing a downgrade record for a
+           message that never left would show the user a chase that did not
+           happen. That is worse than the silence, because they would stop
+           following it up themselves. */
+        if (delivered) {
+          await fastify.chase.logMessage({
+            userId: user.id,
+            invoiceId: invoice.id,
+            channel: "EMAIL",
+            purpose: "REMINDER",
+            downgraded: true,
+            downgradeReason: decision.reason,
+          });
+          await fastify.chase.notifyDowngradeOnce(user.id);
+        } else {
+          fastify.log.warn(
+            { invoiceId: invoice.id },
+            "WhatsApp allowance spent and client has no email — invoice not chased this run",
+          );
+        }
         return;
       }
 
