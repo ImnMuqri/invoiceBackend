@@ -11,7 +11,8 @@
     "postinstall": "prisma generate"
   },
   "prisma": {
-    "seed": "node prisma/seed.js"
+    "seed": "node prisma/seed.js",
+    "test:einvoice": "node src/scripts/test-einvoice-scope.js"
   },
   "keywords": [],
   "author": "",
