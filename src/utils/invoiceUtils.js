@@ -3,6 +3,61 @@ const { createNotification } = require("./notificationUtils");
 /**
  * Centralized utility for marking an invoice as paid and updating relevant metrics.
  */
+/**
+ * Record money received against an invoice (spec 03).
+ *
+ * Replaces flipping a paid flag. A gateway confirming LESS than the full amount
+ * now produces a partial payment and leaves the invoice partially paid, which
+ * is the whole point: the chaser was sending full-amount reminders to clients
+ * who had already paid something.
+ *
+ * Deduplicated on the gateway's own reference, so a webhook delivered twice
+ * records the money once.
+ */
+async function recordGatewayPayment(prisma, invoiceId, { amount, method, gatewayRef, reference }) {
+  const { recalculate } = require("./invoiceMoney");
+
+  if (gatewayRef) {
+    const seen = await prisma.payment.findUnique({ where: { gatewayRef } });
+    if (seen) {
+      /* Already recorded. Recalculate anyway — cheap, and it repairs an invoice
+         whose totals were left inconsistent by an earlier partial failure. */
+      return recalculate(prisma, invoiceId);
+    }
+  }
+
+  await prisma.payment.create({
+    data: {
+      invoiceId,
+      amount,
+      method: method || "OTHER",
+      gatewayRef: gatewayRef || null,
+      reference: reference || null,
+      automatic: true,
+    },
+  });
+
+  const result = await recalculate(prisma, invoiceId);
+
+  if (result?.settled) {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: { client: true },
+    });
+    if (invoice) {
+      await createNotification(
+        prisma,
+        invoice.userId,
+        "Invoice Paid",
+        `Invoice ${invoice.invoiceNumber || invoice.id} for ${invoice.client?.name} has been paid in full.`,
+        "CLIENT_PAID",
+      );
+    }
+  }
+
+  return result;
+}
+
 async function markInvoiceAsPaid(prisma, invoiceId, amountPaid = null) {
   const now = new Date();
 
@@ -130,6 +185,7 @@ async function checkAndNotifyOverdue(prisma, invoiceId) {
 }
 
 module.exports = {
+  recordGatewayPayment,
   markInvoiceAsPaid,
   handlePaymentFailure,
   checkAndNotifyOverdue,

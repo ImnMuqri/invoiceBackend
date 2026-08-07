@@ -36,12 +36,23 @@ async function cronPlugin(fastify, opts) {
 
       for (const user of users) {
         // 2. Find pending/overdue invoices for this user
+        /* Reads amountDue, never amount. Spec 03 calls this the correctness
+           problem at the heart of the product: the chaser was sending
+           full-amount reminders to clients who had already paid something, and
+           that is the failure most likely to embarrass a user in front of their
+           client and make them switch chasing off entirely. */
         const pendingInvoices = await fastify.prisma.invoice.findMany({
           where: {
             userId: user.id,
             // Invoices only. A quotation is not owed, so it is never chased.
             kind: "INVOICE",
-            status: { in: ["Pending", "Overdue"] },
+            /* Partially Paid is chased too — it is still owed, just less of it.
+               Void, Cancelled, Draft and Paid are not. */
+            status: { in: ["Pending", "Overdue", "Partially Paid"] },
+            /* And the balance is what decides, not the label. An invoice whose
+               status is stale for any reason still will not be chased if
+               nothing is outstanding. */
+            amountDue: { gt: 0 },
             client: {
               OR: [{ autoChaser: true }, { autoEmailChaser: true }],
             },
@@ -215,15 +226,45 @@ async function cronPlugin(fastify, opts) {
         return;
       }
 
+      /* Two default templates, not one.
+         "Your invoice is unpaid" sent to somebody who paid half is exactly the
+         message that does the damage the spec describes. When part of the
+         balance has been settled the reminder says so, thanks them for what
+         arrived, and asks only for what is left.
+
+         Malay alongside English because a payment reminder is read by the
+         CLIENT, not the account owner — the one surface where the wrong
+         language costs money. This copy is a starting point and worth a native
+         check before it goes out at volume. */
+      const partial = invoice.amountPaid > 0 || invoice.amountAdjusted > 0;
+      const DEFAULTS = {
+        en: {
+          full: "Friendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. View: {{invoiceUrl}}",
+          partial:
+            "Hello {{clientName}}, thank you for the payment received on {{invoiceNumber}}. There is {{remainingAmount}} {{currency}} still outstanding, due {{dueDate}}. View: {{invoiceUrl}}",
+        },
+        ms: {
+          full: "Peringatan mesra untuk {{clientName}}: Invois {{invoiceNumber}} ({{totalAmount}} {{currency}}) perlu dijelaskan pada {{dueDate}}. Lihat: {{invoiceUrl}}",
+          partial:
+            "Salam {{clientName}}, terima kasih atas pembayaran yang diterima bagi {{invoiceNumber}}. Baki sebanyak {{remainingAmount}} {{currency}} masih belum dijelaskan, tarikh akhir {{dueDate}}. Lihat: {{invoiceUrl}}",
+        },
+      };
+      const lang = DEFAULTS[user.locale === "ms" ? "ms" : "en"];
+
       const template =
-        notif.whatsappReminderTemplate ||
-        "Friendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. View: {{invoiceUrl}}";
+        (partial
+          ? notif.whatsappPartialTemplate || lang.partial
+          : notif.whatsappReminderTemplate || lang.full);
       const message = template
         .replace(/{{userName}}/g, profile.name || "")
         .replace(/{{companyName}}/g, profile.companyName || "InvoKita User")
         .replace(/{{clientName}}/g, invoice.client.name)
         .replace(/{{invoiceNumber}}/g, invoice.invoiceNumber || invoice.id)
-        .replace(/{{totalAmount}}/g, invoice.amount.toLocaleString())
+        .replace(/{{totalAmount}}/g, (invoice.amount / 100).toFixed(2))
+        /* The whole reason this exists: the figure a partially-paid client
+           needs to see is what is LEFT, not what the invoice was for. */
+        .replace(/{{remainingAmount}}/g, (invoice.amountDue / 100).toFixed(2))
+        .replace(/{{amountPaid}}/g, (invoice.amountPaid / 100).toFixed(2))
         .replace(/{{currency}}/g, invoice.currency)
         .replace(/{{invoiceUrl}}/g, invoiceUrl)
         .replace(

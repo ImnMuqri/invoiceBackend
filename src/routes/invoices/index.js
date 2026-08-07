@@ -1,3 +1,4 @@
+const { recalculate } = require("../../utils/invoiceMoney");
 const { verifyRenderToken, createRenderToken } = require("../../utils/renderToken");
 async function invoiceRoutes(fastify, opts) {
   const { prisma } = fastify;
@@ -401,27 +402,29 @@ async function invoiceRoutes(fastify, opts) {
         updateData.amount = newTotalAmount;
       }
 
-      // Handle amountPaid specifically
+      /* amountPaid is no longer writable here (spec 03).
+         It used to be set directly on this route, which computed a status from
+         it inline — a second writer of the same four fields, and therefore the
+         exact drift the single-writer rule exists to prevent. Money now arrives
+         only as a Payment row, and recalculate() derives amountPaid,
+         amountAdjusted, amountDue and status from those rows.
+
+         Rejected loudly rather than ignored: a client still POSTing amountPaid
+         here is recording money that would silently never appear. */
       if (request.body.amountPaid !== undefined) {
-        updateData.amountPaid = request.body.amountPaid;
-        if (updateData.amountPaid >= newTotalAmount) {
-          invoiceData.status = "Paid";
-        } else if (updateData.amountPaid > 0) {
-          invoiceData.status = "Partially Paid";
-          updateData.status = "Partially Paid";
-        } else {
-          invoiceData.status = "Pending";
-          updateData.status = "Pending";
-        }
+        return reply.badRequest(
+          "Payments are recorded through /payments/invoice/:id now, so that partial payments and credit notes stay consistent.",
+        );
       }
 
-      // If status is being updated to "Paid" manually or via partial payment, use the utility to update metrics
-      if (invoiceData.status === "Paid" && currentInvoice.status !== "Paid") {
-        await markInvoiceAsPaid(prisma, id, updateData.amountPaid >= newTotalAmount ? updateData.amountPaid : undefined);
-        // Remove status from updateData to avoid double-updating or overriding paidAt later
-        delete updateData.status;
-      } else if (invoiceData.status && invoiceData.status !== "Paid") {
+      /* Status is likewise derived, with one exception: moving an invoice to a
+         terminal state that has nothing to do with money. */
+      if (invoiceData.status && ["Cancelled", "Draft"].includes(invoiceData.status)) {
         updateData.status = invoiceData.status;
+      } else if (invoiceData.status && invoiceData.status !== currentInvoice.status) {
+        return reply.badRequest(
+          "An invoice's status follows what has been paid. Record a payment, issue a credit note, or void it.",
+        );
       }
 
 
@@ -458,15 +461,22 @@ async function invoiceRoutes(fastify, opts) {
         };
       }
 
-      const invoice = await prisma.invoice.update({
+      await prisma.invoice.update({
         where: { id, userId: request.user.id },
         data: updateData,
-        include: { items: true, client: true },
       });
 
-      if (invoiceData.status === "Partially Paid" && currentInvoice.status !== "Partially Paid") {
-        await createNotification(fastify.prisma, request.user.id, "Partial Payment", `Partial payment received for invoice ${invoice.invoiceNumber || invoice.id} from ${invoice.client?.name}.`, "PARTIALLY_PAID");
-      }
+      /* Editing the lines changes `amount`, which changes the balance — so the
+         derived fields have to be refreshed through the single writer rather
+         than left describing the old total. Editing an invoice down below what
+         has already been paid legitimately settles it, and this is what makes
+         that show up correctly. */
+      await recalculate(prisma, id);
+
+      const invoice = await prisma.invoice.findUnique({
+        where: { id },
+        include: { items: true, client: true },
+      });
 
       // Check if immediately overdue after update
       await checkAndNotifyOverdue(prisma, id);

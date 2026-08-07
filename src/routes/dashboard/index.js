@@ -54,7 +54,7 @@ async function dashboardRoutes(fastify, opts) {
             where: { kind: "INVOICE", userId: request.user.id },
             /* amountPaid too: an invoice's contribution to "outstanding" is
                what is LEFT on it, not its face value. */
-            _sum: { amount: true, amountPaid: true },
+            _sum: { amount: true, amountPaid: true, amountDue: true },
           }),
           prisma.invoice.count({
             where: {
@@ -98,7 +98,8 @@ async function dashboardRoutes(fastify, opts) {
 
          Both now work from what has been received rather than from the label. */
       const isSettled = (s) => s === "Paid";
-      const isDead = (s) => s === "Cancelled";
+      /* Void and Cancelled are both excluded from receivables — neither is owed. */
+      const isDead = (s) => s === "Cancelled" || s === "Void";
 
       const convertRow = (value, row) =>
         convertAmount(value || 0, row.currency, targetCurrency);
@@ -117,11 +118,24 @@ async function dashboardRoutes(fastify, opts) {
 
       const outstandingAmount = invoiceTotals.reduce((sum, row) => {
         if (isSettled(row.status) || isDead(row.status)) return sum;
-        /* Floored at zero so an overpayment on one invoice cannot subtract from
+        /* amountDue, not amount minus amountPaid: spec 03 makes amountDue the
+           one figure that already accounts for credit notes as well, and the
+           chaser reads the same column. Two ways of computing "what is owed"
+           is how the dashboard and the reminder end up disagreeing.
+           Floored at zero so an overpayment on one invoice cannot subtract from
            what another still owes. */
-        const left = Math.max(0, (row._sum.amount || 0) - (row._sum.amountPaid || 0));
-        return sum + convertRow(left, row);
+        return sum + convertRow(Math.max(0, row._sum.amountDue || 0), row);
       }, 0);
+
+      /* Partially paid gets its own bucket rather than being folded into
+         overdue. Money that has started arriving is a different situation from
+         money that has not, and the spec asks for it to be visible as such. */
+      const partiallyPaid = invoiceTotals
+        .filter((row) => row.status === "Partially Paid")
+        .reduce(
+          (sum, row) => sum + convertRow(Math.max(0, row._sum.amountDue || 0), row),
+          0,
+        );
 
       /* Two queries, not 1 + 2N.
          This used to loop the top clients and, for each, run a findUnique AND
@@ -267,8 +281,11 @@ async function dashboardRoutes(fastify, opts) {
 
       return {
         stats: {
-          totalRevenue: parseFloat(totalRevenue.toFixed(2)),
-          outstandingAmount: parseFloat(outstandingAmount.toFixed(2)),
+          /* Sen. Rounded because currency conversion is the one place a
+             fraction of a sen can appear. */
+          totalRevenue: Math.round(totalRevenue),
+          outstandingAmount: Math.round(outstandingAmount),
+          partiallyPaid: Math.round(partiallyPaid),
           overdueCount,
           activeClients: activeClientsCount,
           currency: targetCurrency,

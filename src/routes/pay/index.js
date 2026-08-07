@@ -3,7 +3,7 @@ const ToyyibPay = require("../../utils/gateways/toyyibpay");
 const Billplz = require("../../utils/gateways/billplz");
 const HitPay = require("../../utils/gateways/hitpay");
 const SenangPay = require("../../utils/gateways/senangpay");
-const { markInvoiceAsPaid, handlePaymentFailure } = require("../../utils/invoiceUtils");
+const { recordGatewayPayment, markInvoiceAsPaid, handlePaymentFailure } = require("../../utils/invoiceUtils");
 
 async function payRoutes(fastify, opts) {
   const { prisma } = fastify;
@@ -305,6 +305,8 @@ async function payRoutes(fastify, opts) {
     verify,
     paidAmount = null,
     amountNote = "",
+    /* The gateway's own id for this transaction. Carries the deduplication. */
+    gatewayRef = null,
   }) {
     if (!Number.isInteger(invoiceId)) return { ok: false, why: "bad invoice id" };
 
@@ -351,15 +353,28 @@ async function payRoutes(fastify, opts) {
        as a plain value — or worse as a getter on the argument object, which is
        evaluated at destructuring time — reads it before it exists. */
     const due = typeof paidAmount === "function" ? paidAmount() : paidAmount;
-    if (due !== null && due !== undefined) {
-      const paidCents = Math.round(Number(due) * 100);
-      const dueCents = Math.round(Number(invoice.amount) * 100);
-      if (!Number.isFinite(paidCents) || paidCents < dueCents) {
-        return { ok: false, why: `underpaid: ${paidCents} of ${dueCents} cents` };
-      }
+    /* No longer a refusal. Before spec 03 an invoice was paid or unpaid, so a
+       short payment had to be rejected or it would have marked the whole
+       invoice settled. Now it becomes a partial payment and the balance speaks
+       for itself — which is both more honest and what actually happens when a
+       client pays half. The amount is still verified: it comes from the
+       gateway's own confirmation, not from the request body. */
+    if (due !== null && due !== undefined && !Number.isFinite(Number(due))) {
+      return { ok: false, why: "gateway reported an unreadable amount" };
     }
 
-    await markInvoiceAsPaid(prisma, invoiceId);
+    /* Spec 03: record the money, do not flip a flag.
+       A gateway confirming less than the full amount leaves the invoice
+       PARTIALLY PAID rather than settled, and the chaser then talks about the
+       remaining balance instead of the original total. Deduplicated on the
+       gateway's reference, so a webhook delivered twice records it once. */
+    await recordGatewayPayment(prisma, invoiceId, {
+      amount: due !== null && due !== undefined
+        ? Math.round(Number(due) * 100)
+        : invoice.amount,
+      method: providerKey,
+      gatewayRef: gatewayRef || null,
+    });
     return { ok: true, amountNote };
   }
 
@@ -407,6 +422,7 @@ async function payRoutes(fastify, opts) {
         return true;
       },
       paidAmount: () => confirmedAmount,
+      gatewayRef: billcode ? `toyyibpay:${billcode}` : null,
     });
 
     record(request, "toyyibpay", invoiceId, result);
@@ -435,6 +451,7 @@ async function payRoutes(fastify, opts) {
       providerKey: "BILLPLZ",
       // paid_amount is in cents.
       paidAmount: paid_amount != null ? Number(paid_amount) / 100 : null,
+      gatewayRef: body.id ? `billplz:${body.id}` : null,
       verify: async (provider) => {
         const xSignatureKey = decrypt(provider.xSignatureKey);
         // No key configured is now a refusal, not a free pass.
@@ -458,6 +475,7 @@ async function payRoutes(fastify, opts) {
       invoiceId,
       providerKey: "HITPAY",
       paidAmount: amount != null ? Number(amount) : null,
+      gatewayRef: body.payment_id ? `hitpay:${body.payment_id}` : null,
       verify: async (provider) => {
         if (status !== "completed") return false;
         const salt = decrypt(provider.salt);
@@ -498,6 +516,7 @@ async function payRoutes(fastify, opts) {
          prove how much was paid. */
       paidAmount: null,
       amountNote: "senangPay sends no amount; settled on hash + order_id only",
+      gatewayRef: q.transaction_id ? `senangpay:${q.transaction_id}` : null,
       verify: async (provider) => {
         const sp = new SenangPay(provider.merchantId, decrypt(provider.secretKey));
         return sp.verifyHash(q);
