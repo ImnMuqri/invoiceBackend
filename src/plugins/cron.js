@@ -358,6 +358,112 @@ async function cronPlugin(fastify, opts) {
     }
   };
 
+  /**
+   * Quotations that ran out without an answer (spec 07).
+   *
+   * Read the direction of this job carefully, because it is the opposite of
+   * every other job in this file. Nothing is sent to the CLIENT. A quotation
+   * that expires unanswered is not a debt and not a broken promise — the client
+   * agreed to nothing and owes nothing, and messaging them about it is sales
+   * pressure on a prospect the user has not won yet. That is a different
+   * product with a different tone, and it spends the user's reputation.
+   *
+   * What expiry produces is a signal for the USER: this one went cold, here is
+   * what it was worth, decide whether to pick up the phone. Once, per quote —
+   * `expiryNotifiedAt` is what guarantees the once, and it is a timestamp
+   * rather than a flag so that a quote whose validity is later extended can
+   * lapse, and be reported, again.
+   */
+  const expireQuotes = async () => {
+    fastify.log.info("Starting quotation expiry sweep...");
+    try {
+      const now = new Date();
+
+      const { isExpired } = require("../utils/quoteLifecycle");
+
+      const candidates = await fastify.prisma.invoice.findMany({
+        where: {
+          kind: "QUOTE",
+          /* Only the two states that are actually waiting on somebody. A Draft
+             was never sent, so it cannot go unanswered; Accepted and Declined
+             have their answer. */
+          status: { in: ["Sent", "Viewed"] },
+          validUntil: { not: null, lt: now },
+          expiryNotifiedAt: null,
+        },
+        include: { client: { select: { name: true } } },
+      });
+
+      /* The query is a prefilter, not the decision. isExpired treats validUntil
+         as the END of that day — a quote that "holds until 30 November" is one
+         the client reasonably expects to be able to accept ON the 30th — and
+         this job runs at 01:15, so a bare `validUntil < now` would expire every
+         quotation in the system a full day early. Deciding through the same
+         helper the public page uses is what keeps the two from disagreeing
+         about whether a client can still press accept. */
+      const lapsed = candidates.filter((q) => isExpired(q, now));
+
+      if (!lapsed.length) return;
+
+      await fastify.prisma.invoice.updateMany({
+        where: { id: { in: lapsed.map((q) => q.id) } },
+        data: { status: "Expired", expiryNotifiedAt: now },
+      });
+
+      /* Grouped per user, one email each. Somebody who quoted twelve jobs in a
+         busy month should get one message about the three that went cold, not
+         three separate messages — the second is how a useful signal becomes
+         something they filter. The in-app notification stays per quote, because
+         that list is meant to be itemised. */
+      const byUser = new Map();
+      for (const q of lapsed) {
+        if (!byUser.has(q.userId)) byUser.set(q.userId, []);
+        byUser.get(q.userId).push(q);
+      }
+
+      const { getQuoteExpiredEmail } = require("../utils/quoteEmail");
+
+      for (const [userId, quotes] of byUser) {
+        for (const q of quotes) {
+          await createNotification(
+            fastify.prisma,
+            userId,
+            "Quotation expired",
+            `${q.invoiceNumber} for ${q.client?.name || "your client"} passed its validity date without an answer. Nothing was sent to them.`,
+            "QUOTE_EXPIRED",
+          );
+        }
+
+        try {
+          const owner = await fastify.prisma.user.findUnique({
+            where: { id: userId },
+            select: { email: true },
+          });
+          if (!owner?.email) continue;
+
+          const { subject, html, text } = getQuoteExpiredEmail({
+            quotes: quotes.map((q) => ({
+              invoiceNumber: q.invoiceNumber,
+              clientName: q.client?.name || "Unknown client",
+              amount: q.amount,
+              currency: q.currency,
+            })),
+          });
+          await fastify.email.send({ to: owner.email, subject, html, text });
+        } catch (err) {
+          /* One failing account must not stop the rest of the run. The statuses
+             are already written, so nothing is left half-done — the user just
+             does not get the email, and the in-app notification stands. */
+          fastify.log.error({ err, userId }, "Quotation expiry email failed");
+        }
+      }
+
+      fastify.log.info(`Expired ${lapsed.length} quotations across ${byUser.size} accounts.`);
+    } catch (error) {
+      fastify.log.error("Error in quotation expiry job: " + error.message);
+    }
+  };
+
   // Schedule cron jobs
   // Daily at 9 AM: Reminders
   /* Every job is pinned to Asia/Kuala_Lumpur.
@@ -447,6 +553,13 @@ async function cronPlugin(fastify, opts) {
   // Daily at 1 AM: Overdue status updates
   cron.schedule("0 1 * * *", markOverdueInvoices, TZ);
 
+  /* Quotation expiry, fifteen minutes after the overdue sweep. Separate jobs
+     rather than one status pass because they are opposite acts: one marks money
+     late and feeds the chaser, the other marks an offer cold and feeds nobody
+     but the user. Running them apart keeps a failure in either from taking the
+     other down with it. */
+  cron.schedule("15 1 * * *", expireQuotes, TZ);
+
   /* Recurring generation, early enough that an instance issued today is out
      before the working day starts, and before the 09:00 reminder sweep so a
      newly issued invoice is never chased in the same pass that created it. */
@@ -482,9 +595,10 @@ async function cronPlugin(fastify, opts) {
   // Also expose the functions for manual triggering if needed
   fastify.decorate("runReminderJob", processReminders);
   fastify.decorate("runOverdueJob", markOverdueInvoices);
+  fastify.decorate("runQuoteExpiryJob", expireQuotes);
 
   fastify.log.info(
-    "Cron plugin initialized: Automated reminders and overdue checks scheduled.",
+    "Cron plugin initialized: reminders, overdue checks and quotation expiry scheduled.",
   );
 }
 

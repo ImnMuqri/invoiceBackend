@@ -328,6 +328,151 @@ async function dashboardRoutes(fastify, opts) {
     }
   });
 
+  /**
+   * GET /api/dashboard/quotes — the two quotation lists worth a glance (spec 07).
+   *
+   * Its own endpoint rather than more fields on /core, and the reason is the
+   * spec's hardest rule: a quotation is NOT money owed and must never appear in
+   * receivables. /core is where outstanding, overdue and revenue are computed,
+   * and every one of those queries carries `kind: "INVOICE"` for exactly that
+   * reason. Putting quote figures in the same response is how, two refactors
+   * from now, somebody folds one into a total. Separate endpoint, separate
+   * numbers, no shared reduce to accidentally join.
+   *
+   * Two lists, because they are two different jobs:
+   *
+   *   waiting  — sent, nobody has answered. Sorted oldest first: the quote that
+   *              has been out three weeks is the one worth a phone call, and
+   *              newest-first buries it.
+   *   won      — accepted and NOT yet invoiced. This is the valuable one. It is
+   *              work already agreed and not yet billed, which is the single
+   *              most useful thing this product can put in front of somebody.
+   */
+  fastify.get("/quotes", async (request, reply) => {
+    try {
+      const { effectiveStatus, isExpired } = require("../../utils/quoteLifecycle");
+
+      const user = await prisma.user.findUnique({
+        where: { id: request.user.id },
+        select: { profile: { select: { defaultCurrency: true } } },
+      });
+      const targetCurrency = user?.profile?.defaultCurrency || "MYR";
+
+      const select = {
+        id: true,
+        invoiceNumber: true,
+        invoiceName: true,
+        subject: true,
+        status: true,
+        amount: true,
+        currency: true,
+        date: true,
+        validUntil: true,
+        viewedAt: true,
+        acceptedAt: true,
+        acceptedName: true,
+        client: { select: { id: true, name: true, company: true } },
+      };
+
+      /* Deliberately NOT paged in the query.
+         An earlier version took 20 rows and then summed those, so the two
+         headline figures silently described the first twenty quotations rather
+         than the pipeline — a total that is quietly wrong is worse than no
+         total, because nobody checks it. The expiry filter has the same
+         problem: applied after a take, it shrinks the page instead of the set.
+         So the full sets are read, filtered and summed, and only the LISTS are
+         capped, at the bottom. This audience has tens of quotations, not
+         thousands, and the invoice endpoints already read unbounded. */
+      const [waitingRaw, wonRaw] = await Promise.all([
+        prisma.invoice.findMany({
+          where: {
+            kind: "QUOTE",
+            userId: request.user.id,
+            status: { in: ["Sent", "Viewed"] },
+          },
+          select,
+          /* Oldest first: the quotation that has been out three weeks is the
+             one worth a phone call, and newest-first buries it. */
+          orderBy: { date: "asc" },
+        }),
+        prisma.invoice.findMany({
+          where: {
+            kind: "QUOTE",
+            userId: request.user.id,
+            status: "Accepted",
+            /* Not yet billed. The relation is the only honest test — a status
+               cannot tell you whether an invoice exists, and the unique
+               constraint on convertedFromId means there is at most one. */
+            convertedTo: { is: null },
+          },
+          select,
+          /* nulls: "last" is load-bearing. Postgres sorts NULLs FIRST on DESC,
+             and every quotation accepted before this spec shipped has a null
+             acceptedAt — so the default would have put the oldest, least
+             relevant rows at the top of the list and let them fill it. */
+          orderBy: { acceptedAt: { sort: "desc", nulls: "last" } },
+        }),
+      ]);
+
+      /* Lapsed-but-not-yet-swept quotes drop out of "waiting" here rather than
+         being listed as live. The nightly job will relabel them; until it does,
+         this page must not tell somebody a dead quotation is still in play. */
+      const now = new Date();
+      const waiting = waitingRaw
+        .filter((q) => !isExpired(q, now))
+        .map((q) => ({
+          ...q,
+          status: effectiveStatus(q, now),
+          ageDays: Math.max(
+            0,
+            Math.floor((now.getTime() - new Date(q.date).getTime()) / 86400000),
+          ),
+        }));
+
+      const won = wonRaw.map((q) => ({
+        ...q,
+        status: effectiveStatus(q, now),
+        ageDays: Math.max(
+          0,
+          Math.floor(
+            (now.getTime() - new Date(q.acceptedAt || q.date).getTime()) / 86400000,
+          ),
+        ),
+      }));
+
+      /* Converted to the user's currency so the two headline figures are
+         addable, the same way /core does it. Sen throughout. */
+      const total = (rows) =>
+        Math.round(
+          rows.reduce(
+            (sum, q) => sum + convertAmount(q.amount || 0, q.currency, targetCurrency),
+            0,
+          ),
+        );
+
+      /* Totals over EVERYTHING, lists capped for display. The counts travel
+         alongside so the page can say "showing 20 of 47" rather than implying
+         the list is the whole set. */
+      const LIST_CAP = 20;
+
+      return {
+        currency: targetCurrency,
+        waiting: waiting.slice(0, LIST_CAP),
+        won: won.slice(0, LIST_CAP),
+        waitingCount: waiting.length,
+        wonCount: won.length,
+        /* Named for what they are, never "outstanding" or "due". The words on
+           this payload end up on screen, and a quotation total labelled like a
+           receivable is how it gets read as one. */
+        waitingValue: total(waiting),
+        wonValue: total(won),
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.internalServerError("Failed to fetch quotation summary");
+    }
+  });
+
   fastify.get("/forecast", async (request, reply) => {
     try {
       const { range, month, year } = request.query;

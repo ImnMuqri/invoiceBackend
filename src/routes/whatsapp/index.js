@@ -26,8 +26,16 @@ async function whatsappRoutes(fastify, opts) {
       const { id } = request.params;
 
       try {
-        const invoice = await fastify.prisma.invoice.findUnique({
-          where: { id: parseInt(id), userId: request.user.id },
+        const invoice = await fastify.prisma.invoice.findFirst({
+          /* INVOICES ONLY (spec 07).
+             This had no kind filter, and quotations share this table — so a
+             quote id here sent a client a message reading "here is your invoice
+             QUO-0018 ... Due on Invalid Date", and worse, consumeChase() below
+             would stamp chasedInPeriod on the quotation. That is a chase cycle
+             opened on a document the spec says must never be chased. Quotes go
+             out through POST /api/quotes/:id/send, which words the message
+             correctly and links to the accept/decline page. */
+          where: { id: parseInt(id), kind: "INVOICE", userId: request.user.id },
           include: {
             client: true,
           },
@@ -130,8 +138,10 @@ async function whatsappRoutes(fastify, opts) {
       const { id } = request.params;
 
       try {
-        const invoice = await fastify.prisma.invoice.findUnique({
-          where: { id: parseInt(id), userId: request.user.id },
+        const invoice = await fastify.prisma.invoice.findFirst({
+          /* Invoices only — see the send route above. A reminder is by
+             definition a chase, and a quotation is never chased. */
+          where: { id: parseInt(id), kind: "INVOICE", userId: request.user.id },
           include: {
             client: true,
           },

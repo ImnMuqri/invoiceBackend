@@ -8,11 +8,13 @@
     "migrate": "prisma migrate deploy",
     "dev": "node --watch server.js",
     "seed": "node prisma/seed.js",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test:einvoice": "node src/scripts/test-einvoice-scope.js",
+    "test:quotes": "node src/scripts/test-quote-lifecycle.js",
+    "test": "npm run test:einvoice && npm run test:quotes"
   },
   "prisma": {
-    "seed": "node prisma/seed.js",
-    "test:einvoice": "node src/scripts/test-einvoice-scope.js"
+    "seed": "node prisma/seed.js"
   },
   "keywords": [],
   "author": "",

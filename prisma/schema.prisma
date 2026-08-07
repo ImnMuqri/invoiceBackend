@@ -321,6 +321,41 @@ model Invoice {
   /// Quotes only. After this the quote is stale and should not be accepted.
   validUntil DateTime?
 
+  /// ── The quotation loop (spec 07) ──────────────────────────────────────
+  ///
+  /// A quote that is sent and then never answered leaves the user tracking the
+  /// outcome in their head. These columns are what close it: the client gets a
+  /// link, taps accept or decline, and the answer lands here.
+  ///
+  /// The link is a TOKEN, not the row id. /pay/:id can be an integer because
+  /// the worst a stranger can do by walking it is look; accept and decline
+  /// WRITE, so an enumerable url would let anyone mark anyone's quotations
+  /// accepted. Unguessable, unique, and minted once per quote.
+  publicToken String? @unique
+
+  /// First time the client opened the public link. Drives the Viewed status,
+  /// which is the difference between "they have not replied" and "they have not
+  /// even looked" — a distinction that changes what the user does next.
+  viewedAt DateTime?
+
+  /// The acceptance record. Who said yes, when, and from where — captured
+  /// because "they agreed on WhatsApp somewhere" is not something you can show
+  /// anybody six months later. acceptedName is typed by the client and stands
+  /// as a simple signature; it is not verified and does not pretend to be.
+  acceptedAt   DateTime?
+  acceptedName String?
+  acceptedIp   String?
+
+  /// The other answer. A reason is optional — asking for one is useful, forcing
+  /// one just gets you an empty box or a lie.
+  declinedAt    DateTime?
+  declineReason String?
+
+  /// Set when the expiry sweep tells the OWNER a quote lapsed unanswered.
+  /// Stored so that notification happens exactly once, and so a quote whose
+  /// validity is extended can be notified about again later.
+  expiryNotifiedAt DateTime?
+
   /// Conversion is non-destructive: accepting a quote creates a NEW invoice and
   /// leaves the quote standing, so the accepted document survives as a record
   /// and both ends can be shown to the client.
@@ -387,6 +422,8 @@ model Invoice {
   @@index([userId, kind, date(sort: Desc)])
   @@index([clientId])
   @@index([status, dueDate])
+  /// The nightly expiry sweep (spec 07) reads exactly this shape.
+  @@index([kind, status, validUntil])
 }
 
 model InvoiceItem {
