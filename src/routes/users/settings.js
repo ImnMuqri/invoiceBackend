@@ -1,3 +1,5 @@
+const taxIdentity = require("../../utils/taxIdentity");
+
 async function settingsRoutes(fastify, opts) {
   const { prisma } = fastify;
 
@@ -43,6 +45,13 @@ async function settingsRoutes(fastify, opts) {
       tin: profile?.tin ?? null,
       msicCode: profile?.msicCode ?? null,
       sstNumber: profile?.sstNumber ?? null,
+      invoiceIncludeTaxIdentifiers: invoiceConfig?.invoiceIncludeTaxIdentifiers ?? true,
+      invoiceIncludeClientIdentifiers: invoiceConfig?.invoiceIncludeClientIdentifiers ?? true,
+      /* Drives the single dismissable prompt. Computed here rather than in the
+         page, so "has this user given us anything at all" has one definition
+         and the prompt cannot disagree with the export about it. */
+      taxPromptDismissed: profile?.taxPromptDismissed ?? false,
+      taxIdentifiersMissing: taxIdentity.isMissingIdentifiers(profile),
       // Quota
       waSendsUsed: quota?.waSendsUsed ?? 0,
       emailSendsUsed: quota?.emailSendsUsed ?? 0,
@@ -114,15 +123,20 @@ async function settingsRoutes(fastify, opts) {
       }
     }
 
+    /* Trimmed, case-normalised, empty-cleared. Absent keys stay absent so a
+       partial save from the Business page cannot wipe a field it does not
+       own. See utils/taxIdentity. */
+    const identifiers = taxIdentity.businessFields(data);
+
     // Update UserProfile (company info fields)
     await prisma.userProfile.upsert({
       where: { userId: request.user.id },
       update: {
         companyName: data.companyName,
-        registrationNumber: data.registrationNumber,
-        tin: data.tin,
-        msicCode: data.msicCode,
-        sstNumber: data.sstNumber,
+        ...identifiers,
+        /* Once true, never false again: the prompt is dismissable, not
+           snoozable, so an update is only ever allowed to set it. */
+        ...(data.taxPromptDismissed === true ? { taxPromptDismissed: true } : {}),
         companyEmail: data.companyEmail,
         companyPhone: data.companyPhone,
         address: data.address,
@@ -130,10 +144,8 @@ async function settingsRoutes(fastify, opts) {
       create: {
         userId: request.user.id,
         companyName: data.companyName,
-        registrationNumber: data.registrationNumber,
-        tin: data.tin,
-        msicCode: data.msicCode,
-        sstNumber: data.sstNumber,
+        ...identifiers,
+        taxPromptDismissed: data.taxPromptDismissed === true,
         companyEmail: data.companyEmail,
         companyPhone: data.companyPhone,
         address: data.address,
@@ -151,6 +163,8 @@ async function settingsRoutes(fastify, opts) {
         invoiceIncludeCompanyPhone: data.invoiceIncludeCompanyPhone,
         invoiceIncludeCompanyName: data.invoiceIncludeCompanyName,
         invoiceIncludeAddress: data.invoiceIncludeAddress,
+        invoiceIncludeTaxIdentifiers: data.invoiceIncludeTaxIdentifiers,
+        invoiceIncludeClientIdentifiers: data.invoiceIncludeClientIdentifiers,
         invoicePrefix: data.invoicePrefix,
         quotePrefix: data.quotePrefix,
         creditNotePrefix: data.creditNotePrefix,
@@ -170,6 +184,8 @@ async function settingsRoutes(fastify, opts) {
         invoiceIncludeCompanyPhone: data.invoiceIncludeCompanyPhone ?? true,
         invoiceIncludeCompanyName: data.invoiceIncludeCompanyName ?? true,
         invoiceIncludeAddress: data.invoiceIncludeAddress ?? true,
+        invoiceIncludeTaxIdentifiers: data.invoiceIncludeTaxIdentifiers ?? true,
+        invoiceIncludeClientIdentifiers: data.invoiceIncludeClientIdentifiers ?? true,
         invoicePrefix: data.invoicePrefix ?? "INV",
         quotePrefix: data.quotePrefix ?? "QUO",
         creditNotePrefix: data.creditNotePrefix ?? "CN",

@@ -1,3 +1,5 @@
+const taxIdentity = require("../../utils/taxIdentity");
+
 async function clientRoutes(fastify, opts) {
   const { prisma } = fastify;
 
@@ -71,6 +73,11 @@ async function clientRoutes(fastify, opts) {
             company: { type: "string" },
             autoChaser: { type: "boolean" },
             autoEmailChaser: { type: "boolean" },
+            /* Spec 05. Free text, no format check — see utils/taxIdentity for
+               why validating these against a pattern is the wrong trade. */
+            registrationNumber: { type: "string" },
+            tin: { type: "string" },
+            isIndividual: { type: "boolean" },
           },
         },
       },
@@ -98,6 +105,8 @@ async function clientRoutes(fastify, opts) {
     const client = await prisma.client.create({
       data: {
         ...data,
+        /* Overwrites the raw values spread above with the cleaned ones. */
+        ...taxIdentity.clientFields(data),
         email: email, // Save trimmed and lowercased
         userId: request.user.id,
       },
@@ -156,6 +165,9 @@ async function clientRoutes(fastify, opts) {
             company: { type: "string" },
             autoChaser: { type: "boolean" },
             autoEmailChaser: { type: "boolean" },
+            registrationNumber: { type: "string" },
+            tin: { type: "string" },
+            isIndividual: { type: "boolean" },
           },
         },
       },
@@ -181,6 +193,12 @@ async function clientRoutes(fastify, opts) {
         data[field] = body[field];
       }
     });
+
+    /* Cleaned separately from the allowlist above: `clientFields` returns only
+       the keys actually present, so an edit that does not touch the
+       identifiers leaves them alone, and one that clears a box clears the
+       column rather than storing "". */
+    Object.assign(data, taxIdentity.clientFields(body));
 
     // Tighten validation and normalize email
     if (data.email !== undefined) {

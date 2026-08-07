@@ -29,16 +29,33 @@ async function payRoutes(fastify, opts) {
         fromEmail: true,
         fromCompanyName: true,
         fromAddress: true,
+        /* Frozen identifiers (spec 05). Shown on the public page only when set,
+           and only when the user has not switched the block off. */
+        fromRegistrationNumber: true,
+        fromTin: true,
+        fromMsicCode: true,
+        fromSstNumber: true,
         items: {
           select: { id: true, name: true, quantity: true, price: true, total: true },
         },
         client: {
-          select: { name: true, email: true, company: true, address: true },
+          select: {
+            name: true, email: true, company: true, address: true,
+            registrationNumber: true, tin: true, isIndividual: true,
+          },
         },
         user: {
           select: {
             plan: true,
             manualPayment: true,
+            /* Only the two display switches, nothing else from the config —
+               this response goes to an unauthenticated visitor. */
+            invoiceConfig: {
+              select: {
+                invoiceIncludeTaxIdentifiers: true,
+                invoiceIncludeClientIdentifiers: true,
+              },
+            },
             paymentProviders: {
               where: { isActive: true },
               select: { id: true, provider: true, isPreferred: true },
@@ -49,6 +66,15 @@ async function payRoutes(fastify, opts) {
     });
 
     if (!invoice) return reply.notFound("Invoice not found");
+
+    /* Lifted to the top level and the nested object dropped, so the page reads
+       one flag rather than reaching through `user.invoiceConfig?.` — and so
+       nothing else from the config can drift into a public payload later. */
+    invoice.showTaxIdentifiers =
+      invoice.user?.invoiceConfig?.invoiceIncludeTaxIdentifiers ?? true;
+    invoice.showClientIdentifiers =
+      invoice.user?.invoiceConfig?.invoiceIncludeClientIdentifiers ?? true;
+    if (invoice.user) delete invoice.user.invoiceConfig;
 
     // Flatten manual payment fields for frontend compatibility
     if (invoice.user?.manualPayment) {

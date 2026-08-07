@@ -92,6 +92,12 @@ model UserProfile {
   tin                String?
   msicCode           String?
   sstNumber          String?
+
+  /// The one-time prompt (spec 05). Set once, never unset: "collect quietly, do
+  /// not interrupt" means a dismissal is permanent, not a snooze. Kept here
+  /// rather than in local storage so dismissing on a laptop also dismisses on a
+  /// phone — the same person already said no.
+  taxPromptDismissed Boolean @default(false)
 }
 
 // ─────────────────────────────────────────────
@@ -149,26 +155,32 @@ model UserNotification {
 // UserInvoiceConfig — Invoice Branding & Defaults
 // ─────────────────────────────────────────────
 model UserInvoiceConfig {
-  id                          Int      @id @default(autoincrement())
-  userId                      Int      @unique
-  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  invoicePrefix               String   @default("INV")
+  id                              Int      @id @default(autoincrement())
+  userId                          Int      @unique
+  user                            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invoicePrefix                   String   @default("INV")
   /// Quotes get their own prefix and their own sequence, so issuing a quote
   /// never advances the invoice numbering. An accountant reading a run of
   /// invoice numbers with gaps in it will ask why.
-  quotePrefix                 String   @default("QUO")
+  quotePrefix                     String   @default("QUO")
   /// Credit notes carry their own sequence; an accountant expects them
   /// numbered separately from invoices.
-  creditNotePrefix            String   @default("CN")
-  defaultTaxRate              Float    @default(0.0)
-  invoiceIncludeName          Boolean  @default(true)
-  invoiceIncludeEmail         Boolean  @default(false)
-  invoiceIncludePersonalPhone Boolean  @default(false)
-  invoiceIncludeCompanyPhone  Boolean  @default(true)
-  invoiceIncludeCompanyName   Boolean  @default(true)
-  invoiceIncludeAddress       Boolean  @default(true)
-  createdAt                   DateTime @default(now())
-  updatedAt                   DateTime @updatedAt
+  creditNotePrefix                String   @default("CN")
+  defaultTaxRate                  Float    @default(0.0)
+  invoiceIncludeName              Boolean  @default(true)
+  invoiceIncludeEmail             Boolean  @default(false)
+  invoiceIncludePersonalPhone     Boolean  @default(false)
+  invoiceIncludeCompanyPhone      Boolean  @default(true)
+  invoiceIncludeCompanyName       Boolean  @default(true)
+  invoiceIncludeAddress           Boolean  @default(true)
+  /// One switch per block rather than one per field (spec 05). The fields only
+  /// ever render when they are actually filled in, so these exist for the user
+  /// who has entered their identifiers and does not want them on the document —
+  /// not as a way to build the block up field by field.
+  invoiceIncludeTaxIdentifiers    Boolean  @default(true)
+  invoiceIncludeClientIdentifiers Boolean  @default(true)
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
 
   /// Where the monthly export goes (spec 04). Null means the job is off — the
   /// address IS the switch, so there is no way to have it on and going nowhere.
@@ -279,7 +291,7 @@ model Invoice {
   kind String @default("INVOICE")
 
   /// Per-user sequence. Quotes count on their own so invoice numbers never gap.
-  userInvoiceNumber Int      @default(0)
+  userInvoiceNumber Int     @default(0)
   userQuoteNumber   Int?
   invoiceNumber     String?
   invoiceName       String?
@@ -289,7 +301,19 @@ model Invoice {
   fromEmail         String?
   fromPhone         String?
   fromAddress       String?
-  date              DateTime @default(now())
+
+  /// Tax identifiers, FROZEN at issue (spec 05).
+  ///
+  /// Copied from UserProfile when the document is created rather than read
+  /// live, for the same reason fromName and fromAddress above it are copied:
+  /// the client is holding this document, and correcting a typo in your TIN
+  /// today must not silently rewrite an invoice you issued last year. The copy
+  /// on file and the copy on screen have to keep matching.
+  fromRegistrationNumber String?
+  fromTin                String?
+  fromMsicCode           String?
+  fromSstNumber          String?
+  date                   DateTime @default(now())
 
   /// Invoices only. Nullable because a quotation is not owed on a date — it
   /// expires on one, which is validUntil below.

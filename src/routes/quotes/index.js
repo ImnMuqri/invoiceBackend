@@ -20,6 +20,7 @@ const QUOTE_STATUSES = ["Draft", "Sent", "Accepted", "Declined", "Expired"];
 
 const { assertCreationEnabled } = require("../../utils/systemGuards");
 const { pickWritable } = require("../../utils/invoiceFields");
+const taxIdentity = require("../../utils/taxIdentity");
 
 async function quoteRoutes(fastify, opts) {
   const { prisma } = fastify;
@@ -117,10 +118,23 @@ async function quoteRoutes(fastify, opts) {
           rest.amount ||
           items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
-        const config = await prisma.userInvoiceConfig.findUnique({
-          where: { userId: request.user.id },
-          select: { quotePrefix: true },
-        });
+        const [config, issuerProfile] = await Promise.all([
+          prisma.userInvoiceConfig.findUnique({
+            where: { userId: request.user.id },
+            select: { quotePrefix: true },
+          }),
+          /* A quotation is a document a client keeps too, so it carries the
+             same frozen identifiers an invoice does (spec 05). */
+          prisma.userProfile.findUnique({
+            where: { userId: request.user.id },
+            select: {
+              registrationNumber: true,
+              tin: true,
+              msicCode: true,
+              sstNumber: true,
+            },
+          }),
+        ]);
         const prefix = config?.quotePrefix || "QUO";
 
         /* Own sequence — deliberately reading userQuoteNumber, not
@@ -137,6 +151,7 @@ async function quoteRoutes(fastify, opts) {
           data: {
             /* Whitelisted — the builder posts taxRate, which is not a column. */
             ...pickWritable(rest, "QUOTE"),
+            ...taxIdentity.snapshotFrom(issuerProfile),
             kind: "QUOTE",
             amount,
             status: QUOTE_STATUSES.includes(rest.status) ? rest.status : "Draft",
@@ -294,6 +309,14 @@ async function quoteRoutes(fastify, opts) {
             fromEmail: quote.fromEmail,
             fromPhone: quote.fromPhone,
             fromAddress: quote.fromAddress,
+            /* Carried across from the quote, NOT re-read from the profile.
+               The client accepted a quotation showing these identifiers; the
+               invoice for that same work must show the same ones, even if the
+               profile changed in between. */
+            fromRegistrationNumber: quote.fromRegistrationNumber,
+            fromTin: quote.fromTin,
+            fromMsicCode: quote.fromMsicCode,
+            fromSstNumber: quote.fromSstNumber,
             currency: quote.currency,
             template: quote.template,
             amount: quote.amount,

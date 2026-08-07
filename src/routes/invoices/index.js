@@ -1,5 +1,6 @@
 const { recalculate } = require("../../utils/invoiceMoney");
 const { verifyRenderToken, createRenderToken } = require("../../utils/renderToken");
+const taxIdentity = require("../../utils/taxIdentity");
 async function invoiceRoutes(fastify, opts) {
   const { prisma } = fastify;
   const { createNotification } = require("../../utils/notificationUtils");
@@ -75,6 +76,15 @@ async function invoiceRoutes(fastify, opts) {
                 qrCode: true,
               },
             },
+            /* The two spec-05 display switches. The identifiers themselves are
+               already on the invoice row (frozen at issue); these say whether
+               the document is allowed to print them. */
+            invoiceConfig: {
+              select: {
+                invoiceIncludeTaxIdentifiers: true,
+                invoiceIncludeClientIdentifiers: true,
+              },
+            },
             paymentProviders: {
               where: { isActive: true },
               select: {
@@ -97,6 +107,14 @@ async function invoiceRoutes(fastify, opts) {
     if (!hasRenderToken && invoice.userId !== userId) {
       return reply.notFound("Invoice not found");
     }
+
+    /* Flattened for the same reason as on the public pay route: the document
+       reads one flag instead of reaching through a nested config object. */
+    invoice.showTaxIdentifiers =
+      invoice.user?.invoiceConfig?.invoiceIncludeTaxIdentifiers ?? true;
+    invoice.showClientIdentifiers =
+      invoice.user?.invoiceConfig?.invoiceIncludeClientIdentifiers ?? true;
+    if (invoice.user) delete invoice.user.invoiceConfig;
 
     // Fetch global system configuration for public toggles (Email/WA/Payments)
     // Cached; see the prisma plugin.
@@ -263,10 +281,26 @@ async function invoiceRoutes(fastify, opts) {
       }
 
       // 1. Get the user's custom prefix from UserInvoiceConfig
-      const userConfig = await prisma.userInvoiceConfig.findUnique({
-        where: { userId: request.user.id },
-        select: { invoicePrefix: true },
-      });
+      const [userConfig, issuerProfile] = await Promise.all([
+        prisma.userInvoiceConfig.findUnique({
+          where: { userId: request.user.id },
+          select: { invoicePrefix: true },
+        }),
+        /* Tax identifiers are read from the PROFILE here, not taken from the
+           request body like fromCompanyName above. The body is what the browser
+           thinks the profile said; this is what it actually says. They are
+           frozen onto the row either way (spec 05), so the one moment they are
+           read is the one moment worth getting right. */
+        prisma.userProfile.findUnique({
+          where: { userId: request.user.id },
+          select: {
+            registrationNumber: true,
+            tin: true,
+            msicCode: true,
+            sstNumber: true,
+          },
+        }),
+      ]);
       const prefix = userConfig?.invoicePrefix || "INV";
 
       // 2. Find the highest userInvoiceNumber for this user
@@ -287,6 +321,8 @@ async function invoiceRoutes(fastify, opts) {
           ...pickWritable(invoiceData, "INVOICE"),
           fromCompanyName,
           fromPhone,
+          /* Frozen at issue. An invoice must keep saying what it said. */
+          ...taxIdentity.snapshotFrom(issuerProfile),
           amount,
           latePrediction,
           userInvoiceNumber: nextNumber,

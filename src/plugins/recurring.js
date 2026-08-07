@@ -2,6 +2,7 @@ const fp = require("fastify-plugin");
 const cadence = require("../utils/cadence");
 const { createNotification } = require("../utils/notificationUtils");
 const { sen } = require("../utils/invoiceMoney");
+const taxIdentity = require("../utils/taxIdentity");
 
 /**
  * Recurring invoice generation (spec 02).
@@ -58,10 +59,24 @@ async function recurringPlugin(fastify, opts) {
     try {
       return await prisma.$transaction(async (tx) => {
         const { next, number } = await nextInvoiceNumber(tx, schedule.userId);
+        /* Read at generation, frozen on the row (spec 05) — the same rule the
+           builder follows. A schedule that has been running for a year issues
+           each invoice with the identifiers that were current when THAT
+           invoice was raised. */
+        const issuerProfile = await tx.userProfile.findUnique({
+          where: { userId: schedule.userId },
+          select: {
+            registrationNumber: true,
+            tin: true,
+            msicCode: true,
+            sstNumber: true,
+          },
+        });
         return tx.invoice.create({
           data: {
             kind: "INVOICE",
             userId: schedule.userId,
+            ...taxIdentity.snapshotFrom(issuerProfile),
             clientId: schedule.clientId,
             scheduleId: schedule.id,
             schedulePeriod: occurrence.periodKey,
