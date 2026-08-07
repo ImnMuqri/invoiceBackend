@@ -319,10 +319,32 @@ async function cronPlugin(fastify, opts) {
 
   // Schedule cron jobs
   // Daily at 9 AM: Reminders
-  cron.schedule("0 9 * * *", processReminders);
+  /* Every job is pinned to Asia/Kuala_Lumpur.
+     node-cron uses the server clock when no timezone is given, and on Railway
+     that is UTC — so "0 9 * * *" was firing at 17:00 Malaysia time. A payment
+     reminder landing at 5pm on a working day is far more likely to be read
+     tomorrow than acted on today. */
+  const TZ = { timezone: "Asia/Kuala_Lumpur" };
+
+  cron.schedule("0 9 * * *", processReminders, TZ);
 
   // Daily at 1 AM: Overdue status updates
-  cron.schedule("0 1 * * *", markOverdueInvoices);
+  cron.schedule("0 1 * * *", markOverdueInvoices, TZ);
+
+  /* Recurring generation, early enough that an instance issued today is out
+     before the working day starts, and before the 09:00 reminder sweep so a
+     newly issued invoice is never chased in the same pass that created it. */
+  cron.schedule(
+    "0 6 * * *",
+    async () => {
+      try {
+        await fastify.recurring.generate();
+      } catch (err) {
+        fastify.log.error(err, "Recurring generation job failed");
+      }
+    },
+    TZ,
+  );
 
   // Also expose the functions for manual triggering if needed
   fastify.decorate("runReminderJob", processReminders);

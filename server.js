@@ -167,6 +167,8 @@ async function build() {
   await fastify.register(require("./src/plugins/usage"));
   /* After usage: chase metering reads limitsFor() from it. */
   await fastify.register(require("./src/plugins/chase"));
+  /* After chase: recurring delivery degrades through it. */
+  await fastify.register(require("./src/plugins/recurring"));
   /* Background jobs — the 09:00 reminder sweep and the 01:00 overdue pass.
      Gated on ROLE so this file can serve both a web service and a worker.
 
