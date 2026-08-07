@@ -103,9 +103,16 @@ async function recurringRoutes(fastify, opts) {
         orderBy: [{ status: "asc" }, { nextIssueAt: "asc" }],
       });
 
+      /* Rounded to whole sen. The tax multiply is the one fractional step in
+         an otherwise integer pipeline, and an unrounded result travels to the
+         frontend as a float — which is exactly the drift integer sen exists to
+         prevent. */
       return rows.map((r) => ({
         ...r,
-        amount: r.items.reduce((n, i) => n + i.price * i.quantity, 0) * (1 + (r.taxRate || 0) / 100),
+        amount: Math.round(
+          r.items.reduce((n, i) => n + i.price * i.quantity, 0) *
+            (1 + (r.taxRate || 0) / 100),
+        ),
       }));
     });
 

@@ -36,6 +36,13 @@ async function settingsRoutes(fastify, opts) {
       globalAutoChaser: notification?.globalAutoChaser ?? true,
       invoicePrefix: invoiceConfig?.invoicePrefix ?? "INV",
       quotePrefix: invoiceConfig?.quotePrefix ?? "QUO",
+      creditNotePrefix: invoiceConfig?.creditNotePrefix ?? "CN",
+      accountantEmail: invoiceConfig?.accountantEmail ?? null,
+      // Spec 05 identifiers. Optional everywhere; absent means absent.
+      registrationNumber: profile?.registrationNumber ?? null,
+      tin: profile?.tin ?? null,
+      msicCode: profile?.msicCode ?? null,
+      sstNumber: profile?.sstNumber ?? null,
       // Quota
       waSendsUsed: quota?.waSendsUsed ?? 0,
       emailSendsUsed: quota?.emailSendsUsed ?? 0,
@@ -112,6 +119,10 @@ async function settingsRoutes(fastify, opts) {
       where: { userId: request.user.id },
       update: {
         companyName: data.companyName,
+        registrationNumber: data.registrationNumber,
+        tin: data.tin,
+        msicCode: data.msicCode,
+        sstNumber: data.sstNumber,
         companyEmail: data.companyEmail,
         companyPhone: data.companyPhone,
         address: data.address,
@@ -119,6 +130,10 @@ async function settingsRoutes(fastify, opts) {
       create: {
         userId: request.user.id,
         companyName: data.companyName,
+        registrationNumber: data.registrationNumber,
+        tin: data.tin,
+        msicCode: data.msicCode,
+        sstNumber: data.sstNumber,
         companyEmail: data.companyEmail,
         companyPhone: data.companyPhone,
         address: data.address,
@@ -138,6 +153,13 @@ async function settingsRoutes(fastify, opts) {
         invoiceIncludeAddress: data.invoiceIncludeAddress,
         invoicePrefix: data.invoicePrefix,
         quotePrefix: data.quotePrefix,
+        creditNotePrefix: data.creditNotePrefix,
+        /* Empty string means "clear it", which is different from undefined
+           meaning "leave it alone". */
+        accountantEmail:
+          data.accountantEmail === undefined
+            ? undefined
+            : String(data.accountantEmail).trim() || null,
       },
       create: {
         userId: request.user.id,
@@ -150,6 +172,8 @@ async function settingsRoutes(fastify, opts) {
         invoiceIncludeAddress: data.invoiceIncludeAddress ?? true,
         invoicePrefix: data.invoicePrefix ?? "INV",
         quotePrefix: data.quotePrefix ?? "QUO",
+        creditNotePrefix: data.creditNotePrefix ?? "CN",
+        accountantEmail: data.accountantEmail || null,
       },
     });
 

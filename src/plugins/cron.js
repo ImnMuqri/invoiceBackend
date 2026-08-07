@@ -367,6 +367,81 @@ async function cronPlugin(fastify, opts) {
      tomorrow than acted on today. */
   const TZ = { timezone: "Asia/Kuala_Lumpur" };
 
+  /**
+   * Last month's invoices, emailed wherever the user nominated.
+   *
+   * Attaches the CSV rather than linking to it: a link would need a file to
+   * survive somewhere, and this service writes uploads to local disk, which is
+   * ephemeral on Railway. An attachment arrives once and stays in the inbox,
+   * which is where an accountant wants it anyway.
+   */
+  const sendMonthlyExports = async () => {
+    const ex = require("../utils/accountantExport");
+
+    /* Previous calendar month in Kuala Lumpur, not in UTC — otherwise an
+       account is sent "January" that starts on 31 December. */
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kuala_Lumpur",
+      year: "numeric",
+      month: "2-digit",
+    }).format(now).split("-");
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    const prevY = m === 1 ? y - 1 : y;
+    const prevM = m === 1 ? 12 : m - 1;
+    const from = new Date(Date.UTC(prevY, prevM - 1, 1) - 8 * 3600 * 1000);
+    const to = new Date(Date.UTC(prevY, prevM, 1) - 8 * 3600 * 1000 - 1);
+    const label = `${prevY}-${String(prevM).padStart(2, "0")}`;
+
+    const configs = await fastify.prisma.userInvoiceConfig.findMany({
+      where: { accountantEmail: { not: null } },
+      select: { userId: true, accountantEmail: true },
+    });
+
+    for (const cfg of configs) {
+      try {
+        const invoices = await fastify.prisma.invoice.findMany({
+          where: ex.whereFor(cfg.userId, { from, to }),
+          orderBy: { date: "asc" },
+          include: {
+            client: { select: { name: true, registrationNumber: true, tin: true } },
+            items: { select: { total: true } },
+            payments: {
+              select: {
+                receivedAt: true, amount: true, method: true,
+                reference: true, automatic: true, note: true,
+              },
+            },
+          },
+        });
+
+        /* Sent even when empty. A month with no invoices is information, and an
+           accountant expecting twelve files a year should get twelve. */
+        const csv = ex.toCsv(ex.INVOICE_COLUMNS, invoices.map(ex.invoiceRow));
+        const s = ex.summarise(invoices);
+
+        await fastify.email.send({
+          to: cfg.accountantEmail,
+          subject: `Invoice records for ${label}`,
+          html:
+            `<p>Attached are the invoice records for ${label}.</p>` +
+            `<p>${s.issued} invoices issued, totalling ${ex.amount(s.issuedTotal)}. ` +
+            `${s.settled} settled, ${s.outstanding} still outstanding.</p>` +
+            `<p>Sent automatically by InvoKita.</p>`,
+          attachments: [
+            { filename: `invoices-${label}.csv`, content: Buffer.from(csv, "utf8") },
+          ],
+        });
+
+        fastify.log.info({ userId: cfg.userId, label }, "Monthly export sent");
+      } catch (err) {
+        /* One failing account must not stop the rest of the run. */
+        fastify.log.error({ err, userId: cfg.userId }, "Monthly export failed");
+      }
+    }
+  };
+
   cron.schedule("0 9 * * *", processReminders, TZ);
 
   // Daily at 1 AM: Overdue status updates
@@ -375,6 +450,23 @@ async function cronPlugin(fastify, opts) {
   /* Recurring generation, early enough that an instance issued today is out
      before the working day starts, and before the 09:00 reminder sweep so a
      newly issued invoice is never chased in the same pass that created it. */
+  /* Monthly accountant export (spec 04).
+     Turns a yearly chore into something the user never thinks about, which is
+     the same idea the rest of the product is built on. Off unless an address is
+     set — the address IS the switch, so there is no way to have it enabled and
+     going nowhere. */
+  cron.schedule(
+    "0 7 1 * *",
+    async () => {
+      try {
+        await sendMonthlyExports();
+      } catch (err) {
+        fastify.log.error(err, "Monthly export job failed");
+      }
+    },
+    TZ,
+  );
+
   cron.schedule(
     "0 6 * * *",
     async () => {

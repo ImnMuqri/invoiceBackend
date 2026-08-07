@@ -14,11 +14,17 @@ class SenangPay {
   }
 
   /**
-   * Create a payment URL for SenangPay
+   * Create a payment URL for SenangPay.
+   *
+   * `data.amount` is SEN. SenangPay's `amount` is a decimal in RINGGIT and is
+   * part of the hashed source string, so the conversion has to happen before
+   * the hash — getting it wrong breaks the signature as well as the price.
+   * Passing sen straight through, as this did, asked for RM50,000 on a RM500
+   * invoice.
    */
   async createBill(data) {
     const detail = data.billDescription;
-    const amount = data.amount.toFixed(2);
+    const amount = ((Number(data.amount) || 0) / 100).toFixed(2);
     const order_id = data.externalId;
 
     const sourceString = this.secretKey + detail + amount + order_id;

@@ -13,7 +13,12 @@ class ToyyibPay {
   }
 
   /**
-   * Create a bill in ToyyibPay
+   * Create a bill in ToyyibPay.
+   *
+   * `data.amount` is SEN. ToyyibPay's `billAmount` is also sen, so it passes
+   * straight through — the `* 100` that used to be here dated from when the
+   * argument was ringgit, and after the sen migration it charged every client
+   * a hundred times the invoice.
    */
   async createBill(data) {
     const params = new URLSearchParams();
@@ -23,7 +28,7 @@ class ToyyibPay {
     params.append("billDescription", (data.billDescription || "").substring(0, 100));
     params.append("billPriceSetting", 1); // Fixed price
     params.append("billPayorInfo", 1); // Show payor info
-    params.append("billAmount", Math.round(data.amount * 100)); // In cents
+    params.append("billAmount", Math.round(Number(data.amount) || 0)); // sen
     params.append("billReturnUrl", data.returnUrl);
     params.append("billCallbackUrl", data.callbackUrl);
     params.append("billExternalReferenceNo", data.externalId);

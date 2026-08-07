@@ -1,5 +1,16 @@
+const { sen } = require("./invoiceMoney");
+
+/* Thousands separators for a headline figure, on top of the sen conversion.
+   Formatting alone was the bug: `amount` is sen, so a RM500 invoice went out
+   to the client as "MYR 50,000.00" in the Amount Due block. */
+const money = (value) => {
+  const [whole, cents] = sen(value).split(".");
+  return `${Number(whole).toLocaleString()}.${cents}`;
+};
+
 /**
- * Generates a professional HTML email template for invoices
+ * Generates a professional HTML email template for invoices.
+ * `amount` is SEN, like every money value in this codebase.
  */
 const getInvoiceEmailTemplate = ({
   clientName,
@@ -65,7 +76,7 @@ const getInvoiceEmailTemplate = ({
           <span class="status-badge">${status}</span>
           <span class="invoice-id">${invoiceNumber}</span>
           <span class="amount-label">Amount Due</span>
-          <div class="amount-value">${currency} ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div class="amount-value">${currency} ${money(amount)}</div>
           <div class="due-date">Due ${new Date(dueDate).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" })}</div>
         </div>
 

@@ -228,11 +228,15 @@ async function payRoutes(fastify, opts) {
                 String(txn.billExternalReferenceNo) === String(id) &&
                 String(txn.billpaymentStatus) === "1",
             );
+            /* UNITS: ToyyibPay reports billpaymentAmount in RINGGIT, and
+               invoice.amount is SEN. Both sides used to be multiplied by 100,
+               which compared ringgit-cents against sen-hundredths — off by a
+               hundred, so a genuinely paid invoice never cleared this gate. */
             const enough =
               match &&
               (match.billpaymentAmount == null ||
                 Math.round(Number(match.billpaymentAmount) * 100) >=
-                  Math.round(Number(invoice.amount) * 100));
+                  Math.round(Number(invoice.amount)));
             if (match && enough) {
               await markInvoiceAsPaid(prisma, parseInt(id));
               fastify.log.info({ invoiceId: invoice.id, toyyibpayCode }, "Invoice marked as PAID via Explicit Frontend Verification (ToyyibPay)");
@@ -263,10 +267,12 @@ async function payRoutes(fastify, opts) {
              the bill was created, so require it to match, and require the paid
              amount (in cents) to cover the invoice. */
           const belongs = bill && String(bill.reference_1) === String(id);
+          /* Billplz reports paid_amount in SEN, and invoice.amount is SEN, so
+             they compare directly. The `* 100` here predated the migration. */
           const covered =
             bill &&
             (bill.paid_amount == null ||
-              Number(bill.paid_amount) >= Math.round(Number(invoice.amount) * 100));
+              Number(bill.paid_amount) >= Math.round(Number(invoice.amount)));
           if (belongs && covered && (bill.paid === true || String(bill.paid) === "true")) {
             await markInvoiceAsPaid(prisma, parseInt(id));
             fastify.log.info({ invoiceId: invoice.id, billplzId }, "Invoice marked as PAID via Explicit Frontend Verification (Billplz)");
@@ -368,6 +374,11 @@ async function payRoutes(fastify, opts) {
        PARTIALLY PAID rather than settled, and the chaser then talks about the
        remaining balance instead of the original total. Deduplicated on the
        gateway's reference, so a webhook delivered twice records it once. */
+    /* UNITS: `paidAmount` is RINGGIT at every call site, because that is what
+       three of the four gateways report and the fourth (Billplz, which reports
+       sen) is normalised to it where it is read. It is converted to sen here,
+       once. This is the only argument in the backend that is not sen — if you
+       add a gateway, normalise to ringgit at the call site, not here. */
     await recordGatewayPayment(prisma, invoiceId, {
       amount: due !== null && due !== undefined
         ? Math.round(Number(due) * 100)

@@ -1,3 +1,5 @@
+const { sen } = require("../../utils/invoiceMoney");
+
 async function whatsappRoutes(fastify, opts) {
   // Manual trigger for automated chaser (for testing/admin)
   fastify.post(
@@ -68,7 +70,10 @@ async function whatsappRoutes(fastify, opts) {
           .replace(/{{companyName}}/g, profile.companyName || "InvoKita User")
           .replace(/{{clientName}}/g, invoice.client.name)
           .replace(/{{invoiceNumber}}/g, invoice.invoiceNumber || invoice.id)
-          .replace(/{{totalAmount}}/g, invoice.amount.toLocaleString())
+          /* `sen()`, not toLocaleString(): amounts are sen, so the raw value
+             asked a client for "50,000" on a RM500 invoice — in a WhatsApp
+             message, which cannot be edited once sent. */
+          .replace(/{{totalAmount}}/g, sen(invoice.amount))
           .replace(/{{currency}}/g, invoice.currency)
           .replace(/{{invoiceUrl}}/g, invoiceUrl)
           .replace(
@@ -169,7 +174,10 @@ async function whatsappRoutes(fastify, opts) {
           .replace(/{{companyName}}/g, profile.companyName || "InvoKita User")
           .replace(/{{clientName}}/g, invoice.client.name)
           .replace(/{{invoiceNumber}}/g, invoice.invoiceNumber || invoice.id)
-          .replace(/{{totalAmount}}/g, invoice.amount.toLocaleString())
+          /* `sen()`, not toLocaleString(): amounts are sen, so the raw value
+             asked a client for "50,000" on a RM500 invoice — in a WhatsApp
+             message, which cannot be edited once sent. */
+          .replace(/{{totalAmount}}/g, sen(invoice.amount))
           .replace(/{{currency}}/g, invoice.currency)
           .replace(/{{invoiceUrl}}/g, invoiceUrl)
           .replace(

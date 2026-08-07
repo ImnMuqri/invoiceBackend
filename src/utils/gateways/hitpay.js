@@ -15,12 +15,17 @@ class HitPay {
   }
 
   /**
-   * Create a payment request in HitPay
+   * Create a payment request in HitPay.
+   *
+   * `data.amount` is SEN. HitPay's `amount` is a decimal in the MAJOR unit
+   * ("500.00"), so this is one of the two places money leaves as ringgit — the
+   * argument used to be ringgit and was passed through untouched, which after
+   * the sen migration billed a RM500 invoice as RM50,000.
    */
   async createBill(data) {
     try {
       const response = await axios.post(`${this.baseUrl}/payment-requests`, {
-        amount: data.amount,
+        amount: ((Number(data.amount) || 0) / 100).toFixed(2),
         currency: data.currency || "MYR",
         reference_number: data.externalId,
         webhook: data.callbackUrl,

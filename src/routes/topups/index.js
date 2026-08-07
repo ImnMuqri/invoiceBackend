@@ -14,10 +14,15 @@
 /* A block, not a per-message price: the metered unit is the chased invoice, so
    the thing sold has to be the same unit the user sees running out. Priced with
    healthy margin over the underlying per-message cost. Kept here rather than in
-   the Plan table because it is not a plan attribute — it is a product. */
+   the Plan table because it is not a plan attribute — it is a product.
+
+   Prices are SEN, matching TopUp.price and every other money column. They were
+   written as 15 and 39 — ringgit — which stored a RM15 purchase as 15 sen and,
+   once the Xendit helper started converting, would have charged 15 sen for it.
+   RM15 and RM39. */
 const BLOCKS = {
-  small: { chasedInvoices: 10, price: 15 },
-  large: { chasedInvoices: 30, price: 39 },
+  small: { chasedInvoices: 10, price: 1500 },
+  large: { chasedInvoices: 30, price: 3900 },
 };
 
 async function topUpRoutes(fastify, opts) {

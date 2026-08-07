@@ -80,6 +80,18 @@ model UserProfile {
   defaultCurrency String   @default("MYR")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  /// Tax and business identifiers (spec 05).
+  ///
+  /// Stored now because they are painful to collect retroactively: adding them
+  /// later means emailing every existing user asking them to go and fill
+  /// something in, which most will not do. All optional — nothing here blocks
+  /// creating an invoice, and an account that fills none of them looks exactly
+  /// as it does today.
+  registrationNumber String?
+  tin                String?
+  msicCode           String?
+  sstNumber          String?
 }
 
 // ─────────────────────────────────────────────
@@ -157,6 +169,10 @@ model UserInvoiceConfig {
   invoiceIncludeAddress       Boolean  @default(true)
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
+
+  /// Where the monthly export goes (spec 04). Null means the job is off — the
+  /// address IS the switch, so there is no way to have it on and going nowhere.
+  accountantEmail String?
 }
 
 // ─────────────────────────────────────────────
@@ -219,6 +235,13 @@ model Client {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   recurringSchedules RecurringSchedule[]
+
+  /// Client-side identifiers (spec 05). Optional, like the business ones.
+  registrationNumber String?
+  tin                String?
+  /// An individual rather than a business, which changes which identifiers are
+  /// relevant to ask for at all.
+  isIndividual       Boolean @default(false)
 
   @@index([userId])
 }

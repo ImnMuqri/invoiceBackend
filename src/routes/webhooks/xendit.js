@@ -163,7 +163,14 @@ async function xenditWebhooks(fastify, opts) {
             },
           });
 
-          // Reset First-Time Discount for subsequent months
+          /* Reset the first-month discount for subsequent cycles.
+             UNITS: basePrice is sen (Plan.price); `data.amount` comes back from
+             Xendit in RINGGIT. Comparing them directly said a RM29 charge was
+             "less than" 2900 every single time, so this block fired on every
+             renewal and PATCHed the plan to 2900 — ringgit — turning a RM29
+             subscription into RM2,900 a month from cycle two onwards. Both
+             sides are held in sen here and converted only in the request. */
+          const { toRinggit } = require("../../utils/xendit");
           let basePrice = 0;
           const planRecord = await prisma.plan.findUnique({
             where: { name: planName },
@@ -171,7 +178,8 @@ async function xenditWebhooks(fastify, opts) {
           if (planRecord && planRecord.price) {
             basePrice = planRecord.price;
           }
-          const currentAmount = data.amount || basePrice; // use webhook amount
+          const currentAmount =
+            data.amount != null ? Math.round(Number(data.amount) * 100) : basePrice;
           if (basePrice > 0 && currentAmount < basePrice) {
             try {
               const axios = require("axios");
@@ -180,7 +188,7 @@ async function xenditWebhooks(fastify, opts) {
 
               await axios.patch(
                 `https://api.xendit.co/recurring/plans/${xenditSubscriptionId}`,
-                { amount: basePrice },
+                { amount: toRinggit(basePrice) },
                 {
                   headers: {
                     Authorization: `Basic ${token}`,

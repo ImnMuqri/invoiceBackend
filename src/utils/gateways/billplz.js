@@ -16,7 +16,13 @@ class Billplz {
   }
 
   /**
-   * Create a bill in Billplz
+   * Create a bill in Billplz.
+   *
+   * `data.amount` is SEN, matching Invoice.amount and every other money value
+   * in this codebase. Billplz's `amount` is also sen, so it passes straight
+   * through — this used to read `Math.round(data.amount * 100)` because the
+   * argument was ringgit, and after the migration to integer sen that multiply
+   * was still there: a RM500 invoice generated a Billplz bill for RM50,000.
    */
   async createBill(data) {
     const auth = Buffer.from(`${this.apiKey}:`).toString("base64");
@@ -26,7 +32,7 @@ class Billplz {
         collection_id: this.collectionId,
         email: data.payerEmail,
         name: data.payerName,
-        amount: Math.round(data.amount * 100), // In cents
+        amount: Math.round(Number(data.amount) || 0), // sen, as Billplz expects
         callback_url: data.callbackUrl,
         redirect_url: data.returnUrl,
         description: data.billDescription,

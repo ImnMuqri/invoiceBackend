@@ -29,7 +29,12 @@ function convertAmount(amount, fromCurrency, toCurrency) {
   const amountInBase = amount * fromRate;
   const convertedAmount = amountInBase / toRate;
 
-  return parseFloat(convertedAmount.toFixed(2));
+  /* Sen in, sen out. `toFixed(2)` here was rounding to a hundredth of a SEN —
+     a leftover from when amounts were ringgit — so converted figures carried
+     fractional sen that then summed into totals. Whole sen is the smallest
+     unit that exists; anything finer is noise the integer model exists to
+     eliminate. */
+  return Math.round(convertedAmount);
 }
 
 module.exports = {

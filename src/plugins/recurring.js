@@ -1,6 +1,7 @@
 const fp = require("fastify-plugin");
 const cadence = require("../utils/cadence");
 const { createNotification } = require("../utils/notificationUtils");
+const { sen } = require("../utils/invoiceMoney");
 
 /**
  * Recurring invoice generation (spec 02).
@@ -109,7 +110,9 @@ async function recurringPlugin(fastify, opts) {
         try {
           await fastify.whatsapp.sendMessage(
             invoice.client.phone,
-            `Invoice ${invoice.invoiceNumber} for ${invoice.currency} ${invoice.amount.toFixed(2)}.`,
+            /* sen(), not toFixed(2) — the amount is sen, so toFixed printed
+               "50000.00" for a RM500 invoice. */
+            `Invoice ${invoice.invoiceNumber} for ${invoice.currency} ${sen(invoice.amount)}.`,
             null,
           );
           await fastify.chase.consumeChase(schedule.userId, invoice.id, decision);
@@ -147,7 +150,7 @@ async function recurringPlugin(fastify, opts) {
           await fastify.email.send({
             to: invoice.client.email,
             subject: `Invoice ${invoice.invoiceNumber}`,
-            html: `<p>Invoice ${invoice.invoiceNumber} for ${invoice.currency} ${invoice.amount.toFixed(2)} is attached to your account.</p>`,
+            html: `<p>Invoice ${invoice.invoiceNumber} for ${invoice.currency} ${sen(invoice.amount)} is attached to your account.</p>`,
           });
           deliveredEmail = true;
         } catch (err) {

@@ -6,8 +6,45 @@ const getAuthToken = () => {
 };
 
 /**
+ * THE UNIT BOUNDARY.
+ *
+ * Everything in this database is sen. Xendit's MYR `amount` is RINGGIT — the
+ * live MAX subscription was created when Plan.price held 99 and it bills RM99,
+ * which is what proves the unit. Once prices moved to sen, `Plan.price` for PRO
+ * became 2900 and was still being handed to Xendit unconverted: the next person
+ * to subscribe would have been asked to authorise RM2,900 a month for a RM29
+ * plan, on a real card, with a real mandate.
+ *
+ * So this file converts exactly once, here, at the moment of leaving. Arithmetic
+ * above it is in sen; the number in the payload is ringgit. Nothing in between.
+ */
+const toRinggit = (sen) => Math.round(Number(sen) || 0) / 100;
+
+/**
+ * Applies a promo code to a price. Sen in, sen out.
+ *
+ * PERCENTAGE is unit-agnostic. FIXED is not: `discountValue` is a Float an
+ * admin typed into a form, and nobody types "500" meaning RM5 off — it is
+ * ringgit, and converting it is the only reading that matches the number on
+ * the screen. Exported so the billing page can show the same figure this
+ * function will charge; two implementations of a discount is how a customer
+ * gets billed something other than the price they were quoted.
+ */
+function applyDiscount(senPrice, discount) {
+  const base = Number(senPrice) || 0;
+  if (!discount) return base;
+  if (discount.discountType === "PERCENTAGE") {
+    return Math.max(0, Math.round(base * (1 - Number(discount.discountValue) / 100)));
+  }
+  if (discount.discountType === "FIXED") {
+    return Math.max(0, Math.round(base - Number(discount.discountValue) * 100));
+  }
+  return base;
+}
+
+/**
  * Creates a recurring plan in Xendit.
- * Billed monthly.
+ * Billed monthly. `basePrice` is SEN, as Plan.price is.
  */
 async function createRecurringPlan(
   user,
@@ -17,22 +54,12 @@ async function createRecurringPlan(
   successUrl = null,
   failureUrl = null,
 ) {
-  // Determine pricing based on plan
-  let amount = basePrice;
-  if (amount === undefined || amount === null) {
+  if (basePrice === undefined || basePrice === null) {
     throw new Error("Missing price for this subscription plan");
   }
 
-  // Apply discount if present
-  if (discount) {
-    if (discount.discountType === "PERCENTAGE") {
-      amount = amount * (1 - discount.discountValue / 100);
-    } else if (discount.discountType === "FIXED") {
-      amount = Math.max(0, amount - discount.discountValue);
-    }
-    // Round to 2 decimal places for Xendit
-    amount = Math.round(amount * 100) / 100;
-  }
+  /* Sen throughout. Converted only in the payload below. */
+  const amount = applyDiscount(basePrice, discount);
 
   const referenceId = `sub_${user.id}_${planName}_${Date.now()}`;
 
@@ -42,7 +69,8 @@ async function createRecurringPlan(
     // Wait, Xendit API requires customer_id for recurring payments. We need to create it first.
     recurring_action: "PAYMENT",
     currency: "MYR",
-    amount: amount,
+    /* Ringgit. The only place in this codebase where money is not sen. */
+    amount: toRinggit(amount),
     schedule: {
       reference_id: `schedule_${referenceId}`,
       interval: "MONTH",
@@ -107,6 +135,7 @@ async function createRecurringPlan(
       userId: user.id,
       xenditSubscriptionId: response.data.id || referenceId,
       plan: planName,
+      /* Sen, matching the column. Not the ringgit figure sent to Xendit. */
       amount: amount,
       status: "PENDING", // Will be ACTIVE upon successful webhook
     },
@@ -144,12 +173,14 @@ async function cancelRecurringPlan(planId) {
  * Invoice API is the right primitive — it returns a hosted payment page and
  * fires the same webhook infrastructure on settlement.
  */
+/* `amount` is SEN, like every other amount in this codebase. Converted on the
+   way out, same as the recurring plan above. */
 async function createOneOffCharge({ externalId, amount, description, payerEmail, successUrl, failureUrl }) {
   const response = await axios.post(
     "https://api.xendit.co/v2/invoices",
     {
       external_id: externalId,
-      amount,
+      amount: toRinggit(amount),
       description,
       payer_email: payerEmail,
       currency: "MYR",
@@ -168,4 +199,6 @@ module.exports = {
   createOneOffCharge,
   createRecurringPlan,
   cancelRecurringPlan,
+  applyDiscount,
+  toRinggit,
 };

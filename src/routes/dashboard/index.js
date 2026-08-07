@@ -228,13 +228,30 @@ async function dashboardRoutes(fastify, opts) {
         ) {
           const { generateInsights } = require("../../utils/aiService");
 
-          // AI insights no longer consume credits, just cooldown-managed
+          /* RINGGIT, not sen — deliberately, and the only place the dashboard
+             hands out anything but sen.
+
+             The model writes prose the user reads ("you have RM2,300
+             outstanding"). Fed sen it wrote confident sentences quoting figures
+             a hundred times too large, which is worse than a wrong number in a
+             table: it reads as a considered observation about the business. */
+          const forProse = (v) => Number((Number(v || 0) / 100).toFixed(2));
           const aiContext = {
             currency: targetCurrency,
-            totalRevenue,
-            outstandingAmount,
-            overdueInvoices: overdueInvoicesContext,
-            topClients,
+            totalRevenue: forProse(totalRevenue),
+            outstandingAmount: forProse(outstandingAmount),
+            overdueInvoices: overdueInvoicesContext.map((inv) => ({
+              invoiceNumber: inv.invoiceNumber,
+              clientName: inv.client?.name,
+              amount: forProse(inv.amount),
+              amountDue: forProse(inv.amountDue),
+              dueDate: inv.dueDate,
+              currency: inv.currency,
+            })),
+            topClients: topClients.map((c) => ({
+              ...c,
+              totalRevenue: forProse(c.totalRevenue),
+            })),
           };
 
           const newInsights = await generateInsights(aiContext);
