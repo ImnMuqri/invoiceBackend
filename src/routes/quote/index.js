@@ -73,6 +73,12 @@ const PUBLIC_QUOTE_SELECT = {
   user: {
     select: {
       plan: true,
+      /* The sender's letterhead. It was missing, so this page carried OUR logo
+         at the top and nothing of theirs anywhere — while the PDF of the same
+         quotation showed their logo properly. The client opens the link
+         expecting a document from the person who sent it, and got an unbranded
+         page from a company they have never heard of. */
+      profile: { select: { logoUrl: true } },
       invoiceConfig: {
         select: {
           invoiceIncludeTaxIdentifiers: true,
@@ -94,6 +100,10 @@ function present(quote) {
   out.showClientIdentifiers =
     quote.user?.invoiceConfig?.invoiceIncludeClientIdentifiers ?? true;
   out.watermark = quote.user?.plan !== "MAX";
+  /* Lifted to the top level like the other display flags, so the page reads one
+     field rather than reaching through a nested user object — and so nothing
+     else from `user` can drift into a public payload later. */
+  out.logoUrl = quote.user?.profile?.logoUrl || null;
   delete out.user;
 
   /* findByToken selects two columns this function is responsible for removing.
