@@ -309,8 +309,13 @@ async function userRoutes(fastify, opts) {
     return { status: "success", message: "Password updated successfully" };
   });
 
+  /* Autoload only picks up the index file of a directory that has one, so every
+     sibling in routes/users has to be registered here by hand or it is simply
+     never mounted — a 404 with no error anywhere to explain it. logo.js already
+     declares "/logo", so it takes no prefix of its own. */
   fastify.register(require("./settings"), { prefix: "/settings" });
   fastify.register(require("./payments"), { prefix: "/payments" });
+  fastify.register(require("./logo"));
 }
 
 module.exports = userRoutes;
