@@ -45,11 +45,16 @@ WHERE "attributionEnabled" = false
 -- The WhatsApp send count is gone entirely: nothing has incremented waSends or
 -- waReminders since spec 01, so listing it advertised a cap that is not real and
 -- buried the one that is.
+-- Free deliberately does NOT say "chased invoices". The cron only processes PRO
+-- and MAX, so nothing on Free is ever chased automatically — the one-time grant
+-- is spent by pressing send yourself, and the landing page strips any bullet
+-- matching /chas/i from a plan without the chaser precisely so a free tier
+-- cannot appear to promise automation it will never get.
 UPDATE "Plan" SET "features" = ARRAY[
   '5 Invoices/mo',
   '5 Email Deliveries/mo',
   '2 AI Drafts/mo',
-  '3 Chased Invoices (one-time trial)'
+  '3 WhatsApp sends to try it out'
 ] WHERE "name" = 'FREE';
 
 UPDATE "Plan" SET "features" = ARRAY[

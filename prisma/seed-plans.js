@@ -50,11 +50,14 @@ async function main() {
          can watch one full chase cycle complete before deciding. */
       chasedInvoices: 0,
       trialChases: 3,
+      /* Not "chased invoices": the cron only processes PRO and MAX, so the
+         one-time grant is spent by pressing send yourself. Wording a free
+         bullet as chasing would promise automation this tier never gets. */
       features: [
         "5 Invoices/mo",
         "5 Email Deliveries/mo",
         "2 AI Drafts/mo",
-        "3 Chased Invoices (one-time trial)",
+        "3 WhatsApp sends to try it out",
       ],
       isActive: true,
     },

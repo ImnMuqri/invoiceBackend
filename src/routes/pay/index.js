@@ -48,6 +48,13 @@ async function payRoutes(fastify, opts) {
         user: {
           select: {
             plan: true,
+            /* The sender's letterhead. Absent from this payload until now,
+               which is why the pay page opened with OUR logo and nothing of
+               theirs — a stranger being asked for money by a company whose
+               name appeared nowhere above the fold, while the PDF attached to
+               the same email carried their branding properly. /quote/:token
+               fixed this on its side and exposes the same field. */
+            profile: { select: { logoUrl: true } },
             manualPayment: true,
             /* Only the two display switches, nothing else from the config —
                this response goes to an unauthenticated visitor. */
@@ -72,6 +79,11 @@ async function payRoutes(fastify, opts) {
     /* Lifted to the top level and the nested object dropped, so the page reads
        one flag rather than reaching through `user.invoiceConfig?.` — and so
        nothing else from the config can drift into a public payload later. */
+    /* Lifted to the top level and matched to /quote/:token's shape, so the two
+       public documents read one field by the same name. */
+    invoice.logoUrl = invoice.user?.profile?.logoUrl || null;
+    if (invoice.user) delete invoice.user.profile;
+
     invoice.showTaxIdentifiers =
       invoice.user?.invoiceConfig?.invoiceIncludeTaxIdentifiers ?? true;
     invoice.showClientIdentifiers =
