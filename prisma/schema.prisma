@@ -1015,6 +1015,11 @@ model SystemConfiguration {
   emailEnabled           Boolean  @default(true)
   invoiceCreationEnabled Boolean  @default(true)
   paymentsEnabled        Boolean  @default(true)
+  /// Off = nobody can start or move to a paid plan; Free is the only choice in
+  /// onboarding and in Settings → Billing. Existing paid plans keep running and
+  /// keep renewing, and cancelling down to Free stays available — the switch
+  /// stops new commitments, it does not strip anyone of what they bought.
+  planUpgradesEnabled    Boolean  @default(true)
   globalNotice           String?
   maintenanceMode        Boolean  @default(false)
   updatedAt              DateTime @updatedAt

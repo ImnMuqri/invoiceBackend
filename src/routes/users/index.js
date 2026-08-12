@@ -160,6 +160,12 @@ async function userRoutes(fastify, opts) {
   fastify.post("/subscribe", async (request, reply) => {
     const { plan, promoCode } = request.body;
 
+    /* The platform switch, enforced here rather than only in the UI. FREE goes
+       through: that branch is the cancellation path, and an incident switch
+       must never be the reason somebody cannot leave a paid plan. */
+    const { assertPlanChangesEnabled } = require("../../utils/systemGuards");
+    if (!(await assertPlanChangesEnabled(prisma, reply, plan))) return;
+
     const planData = await prisma.plan.findFirst({
       where: { name: { equals: plan, mode: "insensitive" }, isActive: true },
     });

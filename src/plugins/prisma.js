@@ -30,6 +30,7 @@ async function prismaPlugin(fastify, opts) {
             emailEnabled: true,
             invoiceCreationEnabled: true,
             paymentsEnabled: true,
+            planUpgradesEnabled: true,
             globalNotice: null,
             maintenanceMode: false,
           },

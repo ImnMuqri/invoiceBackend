@@ -31,4 +31,35 @@ async function assertCreationEnabled(prisma, reply, noun = "Invoices") {
   return true;
 }
 
-module.exports = { assertCreationEnabled };
+/**
+ * Throws a 403-shaped error when moving onto a paid plan is switched off
+ * platform-wide.
+ *
+ * FREE is always allowed through. The switch stops new commitments; it is not a
+ * lock on the door. Somebody on Pro who wants to cancel down to Free must still
+ * be able to, and /subscribe treats FREE as the cancellation path.
+ *
+ * Same reasoning as `assertCreationEnabled` above: the frontend hides the
+ * upgrade buttons, and that is worth doing, but it is not the enforcement. A
+ * checkout can be started from a stale tab, a retry, or a direct POST, and each
+ * one that gets through while the switch is off is a real charge on a real card
+ * that somebody then has to unwind by hand.
+ *
+ * Missing config counts as enabled, matching the defaults used everywhere else.
+ */
+async function assertPlanChangesEnabled(prisma, reply, targetPlan) {
+  if (String(targetPlan || "").trim().toUpperCase() === "FREE") return true;
+
+  const config = await prisma.systemConfiguration.findFirst({
+    select: { planUpgradesEnabled: true },
+  });
+  if (config && config.planUpgradesEnabled === false) {
+    reply.forbidden(
+      "Plan changes are paused at the moment, so nothing has been charged. The Free plan is still available, and any plan you already have keeps running as normal.",
+    );
+    return false;
+  }
+  return true;
+}
+
+module.exports = { assertCreationEnabled, assertPlanChangesEnabled };

@@ -14,6 +14,7 @@ async function systemRoutes(fastify, opts) {
             emailEnabled: true,
             invoiceCreationEnabled: true,
             paymentsEnabled: true,
+            planUpgradesEnabled: true,
             globalNotice: null,
             maintenanceMode: false,
           }
@@ -30,13 +31,14 @@ async function systemRoutes(fastify, opts) {
   // PATCH / - Update system configuration
   fastify.patch("/", async (request, reply) => {
     try {
-      const { 
-        whatsappEnabled, 
-        emailEnabled, 
-        invoiceCreationEnabled, 
-        paymentsEnabled, 
-        globalNotice, 
-        maintenanceMode 
+      const {
+        whatsappEnabled,
+        emailEnabled,
+        invoiceCreationEnabled,
+        paymentsEnabled,
+        planUpgradesEnabled,
+        globalNotice,
+        maintenanceMode
       } = request.body;
 
       const currentConfig = await prisma.systemConfiguration.findFirst();
@@ -48,6 +50,7 @@ async function systemRoutes(fastify, opts) {
             emailEnabled: emailEnabled ?? true,
             invoiceCreationEnabled: invoiceCreationEnabled ?? true,
             paymentsEnabled: paymentsEnabled ?? true,
+            planUpgradesEnabled: planUpgradesEnabled ?? true,
             globalNotice: globalNotice ?? null,
             maintenanceMode: maintenanceMode ?? false,
           }
@@ -61,6 +64,7 @@ async function systemRoutes(fastify, opts) {
           ...(emailEnabled !== undefined && { emailEnabled }),
           ...(invoiceCreationEnabled !== undefined && { invoiceCreationEnabled }),
           ...(paymentsEnabled !== undefined && { paymentsEnabled }),
+          ...(planUpgradesEnabled !== undefined && { planUpgradesEnabled }),
           ...(globalNotice !== undefined && { globalNotice }),
           ...(maintenanceMode !== undefined && { maintenanceMode }),
         }
