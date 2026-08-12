@@ -1,5 +1,6 @@
 const taxIdentity = require("../../utils/taxIdentity");
 const { canRemoveAttribution, attributionFor } = require("../../utils/attribution");
+const { enforceDocumentFields } = require("../../utils/documentFields");
 
 async function settingsRoutes(fastify, opts) {
   const { prisma } = fastify;
@@ -115,6 +116,27 @@ async function settingsRoutes(fastify, opts) {
 
     if (!user) return reply.notFound("User not found");
 
+    /* The two print switches that are not optional (utils/documentFields.js):
+       the business name always prints, and at least one contact always prints.
+       Applied against STORED merged with INCOMING, because a PUT sends only
+       what changed — checking the body alone would let a request that omits
+       both contact fields look like it had turned them off. Enforced here as
+       well as in the settings UI, since a disabled checkbox is a hint to a
+       browser and this endpoint takes plain JSON. */
+    const storedConfig = await prisma.userInvoiceConfig.findUnique({
+      where: { userId: request.user.id },
+      select: {
+        invoiceIncludeCompanyName: true,
+        invoiceIncludeCompanyPhone: true,
+        invoiceIncludeEmail: true,
+      },
+    });
+
+    Object.assign(
+      data,
+      enforceDocumentFields({ ...(storedConfig || {}), ...data }),
+    );
+
     const notif = user.notification || {};
     const whatsappFields = [
       "whatsappSendTemplate", "whatsappReminderTemplate", "whatsappMode",
@@ -197,14 +219,18 @@ async function settingsRoutes(fastify, opts) {
       create: {
         userId: request.user.id,
         defaultTaxRate: data.defaultTaxRate ?? 0,
-        invoiceIncludeName: data.invoiceIncludeName ?? true,
-        invoiceIncludeEmail: data.invoiceIncludeEmail ?? false,
+        /* These `??` fallbacks are a SECOND copy of the column defaults, and
+           they disagreed with the schema the moment the schema changed. Kept in
+           step by hand here; the values are the business three on, everything
+           else off. */
+        invoiceIncludeName: data.invoiceIncludeName ?? false,
+        invoiceIncludeEmail: data.invoiceIncludeEmail ?? true,
         invoiceIncludePersonalPhone: data.invoiceIncludePersonalPhone ?? false,
         invoiceIncludeCompanyPhone: data.invoiceIncludeCompanyPhone ?? true,
         invoiceIncludeCompanyName: data.invoiceIncludeCompanyName ?? true,
-        invoiceIncludeAddress: data.invoiceIncludeAddress ?? true,
-        invoiceIncludeTaxIdentifiers: data.invoiceIncludeTaxIdentifiers ?? true,
-        invoiceIncludeClientIdentifiers: data.invoiceIncludeClientIdentifiers ?? true,
+        invoiceIncludeAddress: data.invoiceIncludeAddress ?? false,
+        invoiceIncludeTaxIdentifiers: data.invoiceIncludeTaxIdentifiers ?? false,
+        invoiceIncludeClientIdentifiers: data.invoiceIncludeClientIdentifiers ?? false,
         attributionEnabled: data.attributionEnabled ?? true,
         invoicePrefix: data.invoicePrefix ?? "INV",
         quotePrefix: data.quotePrefix ?? "QUO",

@@ -206,18 +206,39 @@ model UserInvoiceConfig {
   /// numbered separately from invoices.
   creditNotePrefix                String   @default("CN")
   defaultTaxRate                  Float    @default(0.0)
-  invoiceIncludeName              Boolean  @default(true)
-  invoiceIncludeEmail             Boolean  @default(false)
+  /// WHAT A NEW ACCOUNT PRINTS.
+  ///
+  /// The BUSINESS three — name, phone, email — and nothing else. An invoice has
+  /// to say who sent it and how to reach them; everything below that is the
+  /// user's choice to switch on, not ours to assume.
+  ///
+  /// The personal name and personal phone used to default on, which put a
+  /// freelancer's own mobile number on every invoice they issued without ever
+  /// asking. The address defaulted on too and printed nothing until filled,
+  /// which is harmless but meant the page opened showing switches the account
+  /// had not chosen.
+  ///
+  /// Two of these are not really optional and are enforced rather than merely
+  /// defaulted — see utils/documentFields.js: the business NAME always prints,
+  /// and at least one CONTACT (phone or email) always prints. A document that
+  /// names nobody, or names somebody with no way to reach them, is not a
+  /// document.
+  invoiceIncludeName              Boolean  @default(false)
+  invoiceIncludeEmail             Boolean  @default(true)
   invoiceIncludePersonalPhone     Boolean  @default(false)
   invoiceIncludeCompanyPhone      Boolean  @default(true)
   invoiceIncludeCompanyName       Boolean  @default(true)
-  invoiceIncludeAddress           Boolean  @default(true)
+  invoiceIncludeAddress           Boolean  @default(false)
   /// One switch per block rather than one per field (spec 05). The fields only
   /// ever render when they are actually filled in, so these exist for the user
   /// who has entered their identifiers and does not want them on the document —
   /// not as a way to build the block up field by field.
-  invoiceIncludeTaxIdentifiers    Boolean  @default(true)
-  invoiceIncludeClientIdentifiers Boolean  @default(true)
+  /// Off by default since the defaults were narrowed. They print nothing until
+  /// an identifier is actually entered, so this changes no document — but a
+  /// switch nobody asked for should not open in the on position, which is what
+  /// made these look like a bug.
+  invoiceIncludeTaxIdentifiers    Boolean  @default(false)
+  invoiceIncludeClientIdentifiers Boolean  @default(false)
 
   /// "Sent with InvoKita" on the public payment page and the invoice PDF
   /// (spec 09).

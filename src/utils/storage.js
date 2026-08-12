@@ -152,12 +152,30 @@ async function putLogo({ file, mimetype, userId }) {
   return { url: `${cfg.publicUrl}/${key}`, key, storage: "r2" };
 }
 
-/** The development fallback. Same key shape, so the two are comparable. */
+/**
+ * The development fallback. Same key shape, so the two are comparable.
+ *
+ * ABSOLUTE, not "/public/uploads/...". The stored path was relative, and every
+ * surface that draws a logo is served by the FRONTEND — the settings preview,
+ * the builder, and the export page Puppeteer photographs to make the PDF. A
+ * relative url resolves against whatever origin is rendering, so it asked the
+ * Nuxt server for a file that only exists on the API service, got a 404, and
+ * the logo silently did not appear. Front end and back end are separate
+ * services here; they have never shared an origin.
+ *
+ * That is why FRONTEND_URL and BACKEND_URL both exist, and this is the one
+ * place a stored value has to carry the backend's.
+ */
 async function putLogoLocal({ file, key }) {
   const dest = path.join(LOCAL_DIR, key);
   await fs.promises.mkdir(path.dirname(dest), { recursive: true });
   await pipeline(file, fs.createWriteStream(dest));
-  return { url: `/public/uploads/${key}`, key, storage: "local" };
+
+  const base = (process.env.BACKEND_URL || "http://localhost:3002")
+    .replace(/['"]/g, "")
+    .replace(/\/$/, "");
+
+  return { url: `${base}/public/uploads/${key}`, key, storage: "local" };
 }
 
 /**
@@ -174,9 +192,10 @@ async function deleteLogo(fastify, logoUrl) {
   try {
     const cfg = r2Config();
 
-    /* Local files, including ones written before R2 was configured. */
-    if (logoUrl.startsWith("/public/uploads/")) {
-      const rel = logoUrl.replace("/public/uploads/", "");
+    /* Local files. Matches both the absolute form written now and the bare
+       relative form stored before this was fixed, so old rows still clean up. */
+    if (logoUrl.includes("/public/uploads/")) {
+      const rel = logoUrl.slice(logoUrl.indexOf("/public/uploads/") + "/public/uploads/".length);
       const filePath = path.join(LOCAL_DIR, rel);
       /* Confined to the uploads directory. logoUrl comes out of the database
          and should always be ours, but a path built by string concatenation

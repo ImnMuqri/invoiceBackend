@@ -14,7 +14,8 @@
     "test": "npm run test:einvoice && npm run test:quotes && npm run test:import && npm run test:attribution && npm run test:referral",
     "test:import": "node src/scripts/test-client-import.js",
     "test:attribution": "node src/scripts/test-attribution.js",
-    "test:referral": "node src/scripts/test-referral.js"
+    "test:referral": "node src/scripts/test-referral.js",
+    "check:r2": "node src/scripts/check-r2.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
