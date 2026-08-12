@@ -8,14 +8,40 @@ const money = (value) => {
   return `${Number(whole).toLocaleString()}.${cents}`;
 };
 
+/* Anything interpolated into this HTML comes from a user-editable field — a
+   company name, a client name — and lands in somebody else's mail client. */
+const esc = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
 /**
  * Generates a professional HTML email template for invoices.
  * `amount` is SEN, like every money value in this codebase.
+ *
+ * WHOSE BRAND IS AT THE TOP. The sender's. This template used to open with the
+ * InvoKita logo and wordmark, centred, above everything — so a client who was
+ * sent an invoice by their supplier opened an email branded by a company they
+ * have no relationship with, and the actual sender appeared only as text in the
+ * sentence below it. The pay page and the quotation page had the same fault and
+ * were fixed; this is the surface a client sees FIRST, before either of them.
+ *
+ * `senderLogo` is the account's uploaded letterhead (an absolute R2 or backend
+ * url — see utils/storage.js). Absent for most accounts, so the header falls
+ * back to their company name set as type, which is still theirs.
+ *
+ * `attribution` is the object from utils/attribution.js, or null. Same rule as
+ * every other client-facing surface, so an account that pays to remove our line
+ * has it removed here too rather than only on the two pages that asked.
  */
 const getInvoiceEmailTemplate = ({
   clientName,
   senderName,
   senderCompany,
+  senderLogo,
+  attribution,
   invoiceNumber,
   amount,
   currency,
@@ -57,19 +83,19 @@ const getInvoiceEmailTemplate = ({
         <table class="header-table" cellpadding="0" cellspacing="0" border="0">
           <tr>
             <td align="center">
-              <img
-                src="${process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/['"]/g, "").replace(/\/$/, "") : "http://localhost:3000"}/InvoKitaLogo.png"
-                alt="InvoKita Logo"
-                style="width: 32px; height: 32px; vertical-align: middle;" />
-              <span class="logo">InvoKita</span>
+              ${
+                senderLogo
+                  ? `<img src="${esc(senderLogo)}" alt="${esc(senderCompany || senderName || "")}" style="max-height: 48px; max-width: 200px; width: auto; height: auto;" />`
+                  : `<span class="logo">${esc(senderCompany || senderName || "Invoice")}</span>`
+              }
             </td>
           </tr>
         </table>
-        
+
         <p class="intro">
-          Hi <strong>${clientName}</strong>,
+          Hi <strong>${esc(clientName)}</strong>,
           <br><br>
-          You have received an invoice from <strong>${senderName}</strong> ${senderCompany ? `at <strong>${senderCompany}</strong>` : ""} via InvoKita.
+          You have received an invoice from <strong>${esc(senderName)}</strong>${senderCompany ? ` at <strong>${esc(senderCompany)}</strong>` : ""}.
         </p>
 
         <div class="invoice-card">
@@ -88,11 +114,18 @@ const getInvoiceEmailTemplate = ({
           A PDF copy of your invoice is also attached to this email.
         </p>
 
-        <div class="footer">
-          This email was sent via InvoKita. 
-          <br>
-          Accurate & Professional Invoicing.
-        </div>
+        <!-- Ours, at the foot, and only when the account has not paid to remove
+             it — the same rule and the same placement as the payment page and
+             the PDF. It used to sit here unconditionally, which is how a Max
+             customer ended up with our line stripped from one surface and
+             printed on the next. -->
+        ${
+          attribution
+            ? `<div class="footer">
+          <a href="${esc(attribution.url)}" style="color: #94a3b8; text-decoration: none;">${esc(attribution.text)}</a>
+        </div>`
+            : ""
+        }
       </div>
     </body>
     </html>

@@ -11,11 +11,13 @@
     "postinstall": "prisma generate",
     "test:einvoice": "node src/scripts/test-einvoice-scope.js",
     "test:quotes": "node src/scripts/test-quote-lifecycle.js",
-    "test": "npm run test:einvoice && npm run test:quotes && npm run test:import && npm run test:attribution && npm run test:referral",
+    "test": "npm run test:einvoice && npm run test:quotes && npm run test:import && npm run test:attribution && npm run test:referral && npm run test:pay && npm run test:whatsapp",
+    "test:whatsapp": "node src/scripts/test-whatsapp-message.js",
     "test:import": "node src/scripts/test-client-import.js",
     "test:attribution": "node src/scripts/test-attribution.js",
     "test:referral": "node src/scripts/test-referral.js",
-    "check:r2": "node src/scripts/check-r2.js"
+    "check:r2": "node src/scripts/check-r2.js",
+    "test:pay": "node src/scripts/test-pay.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

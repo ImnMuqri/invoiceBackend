@@ -2,6 +2,7 @@ const fp = require("fastify-plugin");
 const cron = require("node-cron");
 const { createNotification } = require("../utils/notificationUtils");
 const { autoChaseChannels } = require("../utils/systemGuards");
+const { attributionFor } = require("../utils/attribution");
 
 async function cronPlugin(fastify, opts) {
   // Function to process reminders
@@ -38,7 +39,11 @@ async function cronPlugin(fastify, opts) {
         select: {
           id: true,
           plan: true,
-          profile: { select: { name: true, companyName: true } },
+          /* logoUrl so the reminder carries the SENDER's letterhead, and the
+             attribution flag so our own line follows the same rule here as on
+             every other client-facing surface. */
+          profile: { select: { name: true, companyName: true, logoUrl: true } },
+          invoiceConfig: { select: { attributionEnabled: true } },
           notification: true,
         },
       });
@@ -207,6 +212,12 @@ async function cronPlugin(fastify, opts) {
         clientName: invoice.client.name,
         senderName: profile.name || "Our Company",
         senderCompany: profile.companyName,
+        senderLogo: profile.logoUrl,
+        attribution: attributionFor({
+          plan: user.plan,
+          enabled: user.invoiceConfig?.attributionEnabled,
+          surface: "email",
+        }),
         invoiceNumber: invoice.invoiceNumber || `#${invoice.id}`,
         amount: invoice.amount,
         currency: invoice.currency,

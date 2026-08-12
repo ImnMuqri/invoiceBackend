@@ -1,4 +1,20 @@
-const { sen } = require("../../utils/invoiceMoney");
+const {
+  renderInvoiceMessage,
+  renderQuoteMessage,
+  waShareUrl,
+  waWebUrl,
+} = require("../../utils/whatsappMessage");
+const {
+  ensurePublicToken,
+  publicQuoteUrl,
+} = require("../../utils/quoteLifecycle");
+
+/** FRONTEND_URL, minus the quoting and trailing slash people leave in .env. */
+function frontendOrigin() {
+  return (process.env.FRONTEND_URL || "http://localhost:3000")
+    .replace(/['"]/g, "")
+    .replace(/\/$/, "");
+}
 
 async function whatsappRoutes(fastify, opts) {
   // Manual trigger for automated chaser (for testing/admin)
@@ -66,32 +82,17 @@ async function whatsappRoutes(fastify, opts) {
         const notif = user?.notification || {};
         const profile = user?.profile || {};
 
-        const template =
-          notif.whatsappSendTemplate ||
-          "{{userName}} {{companyName}} via InvoKita\n\nHello {{clientName}}, here is your invoice {{invoiceNumber}} for {{totalAmount}} {{currency}}. Due on {{dueDate}}. View here: {{invoiceUrl}}";
-
-        const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/['"]/g, "").replace(/\/$/, "") : "http://localhost:3000";
-        const invoiceUrl = `${frontendUrl}/pay/${invoice.id}`;
-
-        const message = template
-          .replace(/{{userName}}/g, profile.name || "")
-          .replace(/{{companyName}}/g, profile.companyName || "InvoKita User")
-          .replace(/{{clientName}}/g, invoice.client.name)
-          .replace(/{{invoiceNumber}}/g, invoice.invoiceNumber || invoice.id)
-          /* `sen()`, not toLocaleString(): amounts are sen, so the raw value
-             asked a client for "50,000" on a RM500 invoice — in a WhatsApp
-             message, which cannot be edited once sent. */
-          .replace(/{{totalAmount}}/g, sen(invoice.amount))
-          .replace(/{{currency}}/g, invoice.currency)
-          .replace(/{{invoiceUrl}}/g, invoiceUrl)
-          .replace(
-            /{{dueDate}}/g,
-            new Date(invoice.dueDate).toLocaleDateString("en-US", {
-              day: "numeric",
-              month: "short",
-              year: "numeric",
-            }),
-          );
+        /* Composed by utils/whatsappMessage so this, the reminder below, the
+           quotation send and both manual share links produce the same words from
+           the same template. The four hand-rolled copies this replaces had
+           already drifted from each other and from the settings preview. */
+        const message = renderInvoiceMessage({
+          purpose: "send",
+          template: notif.whatsappSendTemplate,
+          invoice,
+          profile,
+          invoiceUrl: `${frontendOrigin()}/pay/${invoice.id}`,
+        });
 
         let credentials = null;
         if (notif.whatsappMode === "CUSTOM") {
@@ -172,32 +173,13 @@ async function whatsappRoutes(fastify, opts) {
         const notif = user?.notification || {};
         const profile = user?.profile || {};
 
-        const template =
-          notif.whatsappReminderTemplate ||
-          "{{userName}} {{companyName}} via InvoKita\n\nFriendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. Please ignore if already paid.";
-
-        const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/['"]/g, "").replace(/\/$/, "") : "http://localhost:3000";
-        const invoiceUrl = `${frontendUrl}/pay/${invoice.id}`;
-
-        const message = template
-          .replace(/{{userName}}/g, profile.name || "")
-          .replace(/{{companyName}}/g, profile.companyName || "InvoKita User")
-          .replace(/{{clientName}}/g, invoice.client.name)
-          .replace(/{{invoiceNumber}}/g, invoice.invoiceNumber || invoice.id)
-          /* `sen()`, not toLocaleString(): amounts are sen, so the raw value
-             asked a client for "50,000" on a RM500 invoice — in a WhatsApp
-             message, which cannot be edited once sent. */
-          .replace(/{{totalAmount}}/g, sen(invoice.amount))
-          .replace(/{{currency}}/g, invoice.currency)
-          .replace(/{{invoiceUrl}}/g, invoiceUrl)
-          .replace(
-            /{{dueDate}}/g,
-            new Date(invoice.dueDate).toLocaleDateString("en-US", {
-              day: "numeric",
-              month: "short",
-              year: "numeric",
-            }),
-          );
+        const message = renderInvoiceMessage({
+          purpose: "remind",
+          template: notif.whatsappReminderTemplate,
+          invoice,
+          profile,
+          invoiceUrl: `${frontendOrigin()}/pay/${invoice.id}`,
+        });
 
         let credentials = null;
         if (notif.whatsappMode === "CUSTOM") {
@@ -236,6 +218,126 @@ async function whatsappRoutes(fastify, opts) {
         fastify.log.error(error);
         return reply.internalServerError("Failed to send WhatsApp reminder");
       }
+    },
+  );
+
+  /* ── Manual share ──────────────────────────────────────────────────────────
+     Compose the message and hand back a wa.me link. The user's own WhatsApp
+     sends it — we do not.
+
+     This exists because Twilio is not settled yet, and it is the honest version
+     of that situation: the wording, the document reference and the link are all
+     the ones the automated send would use, so a business that shares by hand
+     today sounds identical to one sending through us tomorrow.
+
+     What these routes deliberately do NOT do, all for the same reason — nothing
+     has been sent by us and we cannot know whether the sender went through with
+     it:
+
+       * no chase metering. consumeChase() would spend a paid allowance on a
+         message we did not deliver, on a click that might have been curiosity.
+       * no whatsappStatus = "Sent". That column drives the chaser and the
+         client-facing "sent" state; setting it from a share would mark an
+         invoice delivered on the strength of a browser tab opening.
+       * no message log entry, for the same reason.
+       * no plan gate. There is nothing metered to gate, and putting a paywall on
+         "copy my own words into my own WhatsApp" would be charging for the
+         clipboard.
+
+     GET, because it is a read: composing text has no side effects, and it stays
+     safe to retry. */
+
+  /** The sender's profile and template row, which both share routes need. */
+  const senderContext = async (userId) => {
+    const user = await fastify.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        notification: { select: { whatsappSendTemplate: true } },
+        profile: { select: { name: true, companyName: true } },
+      },
+    });
+    return {
+      notif: user?.notification || {},
+      profile: user?.profile || {},
+    };
+  };
+
+  fastify.get(
+    "/whatsapp/share/invoice/:id",
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const id = parseInt(request.params.id, 10);
+      if (!Number.isInteger(id)) return reply.badRequest("Invalid invoice id");
+
+      /* kind: "INVOICE" for the same reason the send route filters on it — a
+         quotation id here would produce "here is your invoice QUO-0018 … due
+         Invalid Date". Quotations have their own route below. */
+      const invoice = await fastify.prisma.invoice.findFirst({
+        where: { id, kind: "INVOICE", userId: request.user.id },
+        include: { client: true },
+      });
+      if (!invoice) return reply.notFound("Invoice not found");
+
+      const { notif, profile } = await senderContext(request.user.id);
+
+      const text = renderInvoiceMessage({
+        purpose: "send",
+        template: notif.whatsappSendTemplate,
+        invoice,
+        profile,
+        invoiceUrl: `${frontendOrigin()}/pay/${invoice.id}`,
+      });
+
+      /* Both forms, and the CLIENT picks. The server cannot tell a laptop from a
+         phone reliably enough to decide for it — a user agent is a guess, and
+         getting it wrong sends a desktop user through an interstitial or a phone
+         user to a web app that tells them to scan a QR code. */
+      return {
+        text,
+        url: waShareUrl({ phone: invoice.client?.phone, text }),
+        webUrl: waWebUrl({ phone: invoice.client?.phone, text }),
+        /* So the UI can say whose chat this opens, and warn when it will open
+           WhatsApp's contact picker instead. */
+        hasPhone: !!invoice.client?.phone,
+        clientName: invoice.client?.name || "",
+      };
+    },
+  );
+
+  fastify.get(
+    "/whatsapp/share/quote/:id",
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const id = parseInt(request.params.id, 10);
+      if (!Number.isInteger(id)) return reply.badRequest("Invalid quotation id");
+
+      const quote = await fastify.prisma.invoice.findFirst({
+        where: { id, kind: "QUOTE", userId: request.user.id },
+        include: { client: true },
+      });
+      if (!quote) return reply.notFound("Quotation not found");
+
+      const { profile } = await senderContext(request.user.id);
+
+      /* Minting the token is the one write these routes make, and it is not a
+         side effect of sharing — it is the quotation's permanent public address,
+         created on first need and reused forever after. Without it the link in
+         the message would point nowhere. */
+      const token = await ensurePublicToken(fastify.prisma, quote);
+
+      const text = renderQuoteMessage({
+        quote,
+        profile,
+        quoteUrl: publicQuoteUrl(token),
+      });
+
+      return {
+        text,
+        url: waShareUrl({ phone: quote.client?.phone, text }),
+        webUrl: waWebUrl({ phone: quote.client?.phone, text }),
+        hasPhone: !!quote.client?.phone,
+        clientName: quote.client?.name || "",
+      };
     },
   );
 }

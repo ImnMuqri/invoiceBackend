@@ -47,7 +47,22 @@ const esc = (v) =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
-const shell = (inner) => `
+/**
+ * The wrapper every email in this file shares.
+ *
+ * `brand` decides whose name is at the top, and it is the difference between
+ * the client-facing email and the two owner-facing ones. An email TO THE OWNER
+ * is from us and carries our mark, which is correct. An email to their CLIENT
+ * is a document from their supplier, and opening it with the InvoKita logo put
+ * a company the reader has no relationship with above the one they do — the
+ * same fault the payment page, the quotation page and the invoice email all
+ * had. Pass `{ logo, name }` to brand it as the sender; omit it for ours.
+ *
+ * `attribution` is the object from utils/attribution.js, or null — the shared
+ * rule, so an account that pays to remove our line has it gone here too. Owner
+ * emails do not pass one and keep the plain "Sent via InvoKita" line.
+ */
+const shell = (inner, { brand, attribution } = {}) => `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -55,14 +70,28 @@ const shell = (inner) => `
   <div style="max-width:600px;margin:40px auto;padding:32px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:16px;">
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:32px;">
       <tr><td align="center">
-        <img src="${appUrl()}/InvoKitaLogo.png" alt="InvoKita" width="32" height="32" style="vertical-align:middle;" />
-        <span style="font-size:24px;font-weight:800;color:#0f172a;letter-spacing:-0.025em;vertical-align:middle;margin-left:12px;">InvoKita</span>
+        ${
+          brand
+            ? brand.logo
+              ? `<img src="${esc(brand.logo)}" alt="${esc(brand.name || "")}" style="max-height:48px;max-width:200px;width:auto;height:auto;" />`
+              : `<span style="font-size:24px;font-weight:800;color:#0f172a;letter-spacing:-0.025em;">${esc(brand.name || "Quotation")}</span>`
+            : `<img src="${appUrl()}/InvoKitaLogo.png" alt="InvoKita" width="32" height="32" style="vertical-align:middle;" />
+        <span style="font-size:24px;font-weight:800;color:#0f172a;letter-spacing:-0.025em;vertical-align:middle;margin-left:12px;">InvoKita</span>`
+        }
       </td></tr>
     </table>
     ${inner}
-    <div style="text-align:center;font-size:12px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:24px;margin-top:32px;">
+    ${
+      brand
+        ? attribution
+          ? `<div style="text-align:center;font-size:12px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:24px;margin-top:32px;">
+      <a href="${esc(attribution.url)}" style="color:#94a3b8;text-decoration:none;">${esc(attribution.text)}</a>
+    </div>`
+          : ""
+        : `<div style="text-align:center;font-size:12px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:24px;margin-top:32px;">
       Sent via InvoKita.
-    </div>
+    </div>`
+    }
   </div>
 </body>
 </html>`;
@@ -86,6 +115,8 @@ function getQuoteEmail({
   clientName,
   senderName,
   senderCompany,
+  senderLogo,
+  attribution,
   quoteNumber,
   amount,
   currency,
@@ -122,7 +153,11 @@ function getQuoteEmail({
       You can accept or decline it on that page — no account needed.
       <br>Nothing is owed until a quotation is accepted and invoiced.
     </p>
-  `);
+  `,
+    /* The only email in this file addressed to a client, and so the only one
+       branded as the sender rather than as us. */
+    { brand: { logo: senderLogo, name: from }, attribution },
+  );
 
   const text = [
     `Hi ${clientName},`,

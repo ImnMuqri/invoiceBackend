@@ -6,6 +6,32 @@ const SenangPay = require("../../utils/gateways/senangpay");
 const { recordGatewayPayment, markInvoiceAsPaid, handlePaymentFailure } = require("../../utils/invoiceUtils");
 const { attributionFor } = require("../../utils/attribution");
 
+/**
+ * What is actually still owed on an invoice, in sen.
+ *
+ * THE BUG THIS EXISTS TO CLOSE. Every gateway bill on this page was created for
+ * `invoice.amount` — the original total — so a client who had already paid half
+ * was sent to a checkout for the full amount a second time. The public page
+ * showed the same figure under the words "Amount Due". Spec 03 calls this the
+ * correctness problem at the heart of the product and fixed it in the chaser,
+ * which reads amountDue; the payment page, where the money actually moves, was
+ * never changed.
+ *
+ * DERIVED, NOT READ. `amountDue` is a stored column maintained by
+ * invoiceMoney.recalculate(), and it defaults to 0 — so an invoice written
+ * before that column existed, or one whose recalculation failed midway, can
+ * hold a legitimate-looking 0 against a real balance. Reading it here would
+ * turn a stale row into a bill for nothing. The subtraction is the same one
+ * recalculate() performs, and it cannot be stale because every term is a
+ * committed total.
+ */
+function outstandingSen(invoice) {
+  const total = Number(invoice.amount) || 0;
+  const paid = Number(invoice.amountPaid) || 0;
+  const adjusted = Number(invoice.amountAdjusted) || 0;
+  return Math.max(0, total - paid - adjusted);
+}
+
 async function payRoutes(fastify, opts) {
   const { prisma } = fastify;
 
@@ -22,6 +48,12 @@ async function payRoutes(fastify, opts) {
         subject: true,
         status: true,
         amount: true,
+        /* The three terms the balance is made of. Sent so the page can show
+           what is left to pay rather than the original total — and so it can
+           show the client what has already been credited, which is the fact
+           that stops a "why are you asking me again" email. */
+        amountPaid: true,
+        amountAdjusted: true,
         currency: true,
         date: true,
         dueDate: true,
@@ -76,14 +108,18 @@ async function payRoutes(fastify, opts) {
 
     if (!invoice) return reply.notFound("Invoice not found");
 
-    /* Lifted to the top level and the nested object dropped, so the page reads
-       one flag rather than reaching through `user.invoiceConfig?.` — and so
-       nothing else from the config can drift into a public payload later. */
     /* Lifted to the top level and matched to /quote/:token's shape, so the two
        public documents read one field by the same name. */
     invoice.logoUrl = invoice.user?.profile?.logoUrl || null;
     if (invoice.user) delete invoice.user.profile;
 
+    /* Computed here so the page and the checkout cannot disagree about the
+       figure: this is the same function create-bill charges. */
+    invoice.amountOutstanding = outstandingSen(invoice);
+
+    /* Lifted so the page reads one flag rather than reaching through
+       `user.invoiceConfig?.` — and so nothing else from the config can drift
+       into a public payload later. */
     invoice.showTaxIdentifiers =
       invoice.user?.invoiceConfig?.invoiceIncludeTaxIdentifiers ?? true;
     invoice.showClientIdentifiers =
@@ -147,6 +183,14 @@ async function payRoutes(fastify, opts) {
     if (!provider)
       return reply.badRequest("Payment provider not found or inactive");
 
+    /* Charge what is LEFT, never the original total. See outstandingSen().
+       A zero balance with a status that is not yet "Paid" is possible — credit
+       notes can cover an invoice in full — and a gateway bill for RM0 either
+       errors or takes a payment for nothing, so it is refused here. */
+    const chargeSen = outstandingSen(invoice);
+    if (chargeSen <= 0)
+      return reply.badRequest("There is nothing left to pay on this invoice");
+
     const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
     const backendUrl = (process.env.BACKEND_URL || "https://yourbackend.com").replace(/\/$/, "");
     const callbackUrl = `${backendUrl}/api/pay/webhook/${provider.provider.toLowerCase()}`;
@@ -159,7 +203,7 @@ async function payRoutes(fastify, opts) {
         const bill = await tp.createBill({
           billName: `Invoice ${invoice.invoiceNumber}`,
           billDescription: `Payment for Invoice ${invoice.invoiceNumber} from ${invoice.user.companyName || "InvoKita"}`,
-          amount: invoice.amount,
+          amount: chargeSen,
           returnUrl,
           callbackUrl,
           externalId: invoice.id.toString(),
@@ -179,7 +223,7 @@ async function payRoutes(fastify, opts) {
         );
         const bill = await bp.createBill({
           billDescription: `Payment for Invoice ${invoice.invoiceNumber}`,
-          amount: invoice.amount,
+          amount: chargeSen,
           returnUrl,
           callbackUrl,
           externalId: invoice.id.toString(),
@@ -195,7 +239,7 @@ async function payRoutes(fastify, opts) {
         const hp = new HitPay(apiKey, salt);
         const bill = await hp.createBill({
           billDescription: `Invoice ${invoice.invoiceNumber}`,
-          amount: invoice.amount,
+          amount: chargeSen,
           currency: invoice.currency,
           returnUrl,
           callbackUrl,
@@ -211,7 +255,7 @@ async function payRoutes(fastify, opts) {
         const sp = new SenangPay(provider.merchantId, secretKey);
         const bill = await sp.createBill({
           billDescription: `Invoice ${invoice.invoiceNumber}`,
-          amount: invoice.amount,
+          amount: chargeSen,
           returnUrl,
           callbackUrl,
           externalId: invoice.id.toString(),
@@ -282,12 +326,18 @@ async function payRoutes(fastify, opts) {
             /* UNITS: ToyyibPay reports billpaymentAmount in RINGGIT, and
                invoice.amount is SEN. Both sides used to be multiplied by 100,
                which compared ringgit-cents against sen-hundredths — off by a
-               hundred, so a genuinely paid invoice never cleared this gate. */
+               hundred, so a genuinely paid invoice never cleared this gate.
+
+               COMPARED AGAINST THE BALANCE, not the original total. The bill
+               was created for what was outstanding, so a partially paid invoice
+               settles for less than `amount` — measuring against the total here
+               would reject the very payment this endpoint just charged for and
+               leave the client charged with the invoice still open. */
             const enough =
               match &&
               (match.billpaymentAmount == null ||
                 Math.round(Number(match.billpaymentAmount) * 100) >=
-                  Math.round(Number(invoice.amount)));
+                  outstandingSen(invoice));
             if (match && enough) {
               await markInvoiceAsPaid(prisma, parseInt(id));
               fastify.log.info({ invoiceId: invoice.id, toyyibpayCode }, "Invoice marked as PAID via Explicit Frontend Verification (ToyyibPay)");
@@ -319,11 +369,13 @@ async function payRoutes(fastify, opts) {
              amount (in cents) to cover the invoice. */
           const belongs = bill && String(bill.reference_1) === String(id);
           /* Billplz reports paid_amount in SEN, and invoice.amount is SEN, so
-             they compare directly. The `* 100` here predated the migration. */
+             they compare directly. The `* 100` here predated the migration.
+             Against the outstanding balance for the same reason as ToyyibPay
+             above: that is the figure the bill was raised for. */
           const covered =
             bill &&
             (bill.paid_amount == null ||
-              Number(bill.paid_amount) >= Math.round(Number(invoice.amount)));
+              Number(bill.paid_amount) >= outstandingSen(invoice));
           if (belongs && covered && (bill.paid === true || String(bill.paid) === "true")) {
             await markInvoiceAsPaid(prisma, parseInt(id));
             fastify.log.info({ invoiceId: invoice.id, billplzId }, "Invoice marked as PAID via Explicit Frontend Verification (Billplz)");
@@ -591,3 +643,6 @@ async function payRoutes(fastify, opts) {
 }
 
 module.exports = payRoutes;
+/* Attached for the tests. The rule it encodes decides what a client is charged,
+   so it is pinned in scripts/test-pay.js rather than left to be re-derived. */
+module.exports.outstandingSen = outstandingSen;

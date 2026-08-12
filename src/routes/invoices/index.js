@@ -584,7 +584,16 @@ async function invoiceRoutes(fastify, opts) {
           // Fetch user profile for personalization
           const user = await prisma.user.findUnique({
             where: { id: request.user.id },
-            select: { profile: { select: { name: true, companyName: true } } },
+            select: {
+              /* plan + attributionEnabled decide whether our line appears at
+                 the foot; logoUrl puts the SENDER's letterhead at the top,
+                 where this template used to print ours. */
+              plan: true,
+              profile: {
+                select: { name: true, companyName: true, logoUrl: true },
+              },
+              invoiceConfig: { select: { attributionEnabled: true } },
+            },
           });
           const userProfile = user?.profile || {};
 
@@ -632,6 +641,12 @@ async function invoiceRoutes(fastify, opts) {
             clientName: invoice.client.name,
             senderName: userProfile.name || "Our Company",
             senderCompany: userProfile.companyName,
+            senderLogo: userProfile.logoUrl,
+            attribution: attributionFor({
+              plan: user?.plan,
+              enabled: user?.invoiceConfig?.attributionEnabled,
+              surface: "email",
+            }),
             invoiceNumber: invoice.invoiceNumber || `#${id}`,
             amount: invoice.amount,
             currency: invoice.currency,

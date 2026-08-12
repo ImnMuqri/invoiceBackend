@@ -23,8 +23,9 @@
 const { assertCreationEnabled } = require("../../utils/systemGuards");
 const { pickWritable } = require("../../utils/invoiceFields");
 const taxIdentity = require("../../utils/taxIdentity");
-const { sen } = require("../../utils/invoiceMoney");
+const { renderQuoteMessage } = require("../../utils/whatsappMessage");
 const { getQuoteEmail } = require("../../utils/quoteEmail");
+const { attributionFor } = require("../../utils/attribution");
 const {
   QUOTE_STATUSES,
   mintPublicToken,
@@ -332,7 +333,14 @@ async function quoteRoutes(fastify, opts) {
           where: { id: request.user.id },
           select: {
             notification: true,
-            profile: { select: { name: true, companyName: true } },
+            /* logoUrl brands the client's copy as the SENDER; plan and the
+               attribution flag decide whether our line appears at its foot.
+               Same rule as the pay page, the quotation page and the PDF. */
+            plan: true,
+            profile: {
+              select: { name: true, companyName: true, logoUrl: true },
+            },
+            invoiceConfig: { select: { attributionEnabled: true } },
           },
         });
         const profile = owner?.profile || {};
@@ -380,6 +388,12 @@ async function quoteRoutes(fastify, opts) {
             clientName: quote.client.name,
             senderName: profile.name,
             senderCompany: profile.companyName,
+            senderLogo: profile.logoUrl,
+            attribution: attributionFor({
+              plan: owner?.plan,
+              enabled: owner?.invoiceConfig?.attributionEnabled,
+              surface: "quote-email",
+            }),
             quoteNumber: quote.invoiceNumber,
             amount: quote.amount,
             currency: quote.currency,
@@ -442,19 +456,18 @@ async function quoteRoutes(fastify, opts) {
             return reply.forbidden(message);
           }
 
-          /* Not a user-editable template, unlike the invoice send. There is no
-             quote template column, and inventing one that silently defaults to
-             invoice wording ("your invoice is due") would be worse than a
-             fixed, correct sentence. Worth revisiting when quote templates get
-             their own settings row. */
-          const message =
-            `${profile.name || ""} ${profile.companyName || "InvoKita User"} via InvoKita\n\n` +
-            `Hello ${quote.client.name}, here is quotation ${quote.invoiceNumber} for ` +
-            `${quote.currency} ${sen(quote.amount)}.` +
-            (quote.validUntil
-              ? ` The price holds until ${new Date(quote.validUntil).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })}.`
-              : "") +
-            `\n\nAccept or decline here: ${url}`;
+          /* Still not a user-editable template — there is no quote template
+             column, and defaulting one to the invoice wording ("your invoice is
+             due") would be worse than a fixed correct sentence. What changed is
+             WHERE the sentence lives: utils/whatsappMessage, so the manual
+             "Share on WhatsApp" link on the quotation page words it identically.
+             Two copies of this would mean a client could get one wording from
+             the button and another from the share. */
+          const message = renderQuoteMessage({
+            quote,
+            profile,
+            quoteUrl: url,
+          });
 
           let credentials = null;
           if (notif.whatsappMode === "CUSTOM") {

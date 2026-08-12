@@ -25,6 +25,7 @@ const {
 } = require("../../utils/quoteLifecycle");
 const { getQuoteAnsweredEmail } = require("../../utils/quoteEmail");
 const { createNotification } = require("../../utils/notificationUtils");
+const { attributionFor } = require("../../utils/attribution");
 
 /* Everything the page needs and nothing else. This payload goes to an
    unauthenticated visitor, so it is an explicit select rather than an include:
@@ -83,6 +84,9 @@ const PUBLIC_QUOTE_SELECT = {
         select: {
           invoiceIncludeTaxIdentifiers: true,
           invoiceIncludeClientIdentifiers: true,
+          /* Read so this page can answer the attribution question the same way
+             /pay/:id and the PDF do. See present(). */
+          attributionEnabled: true,
         },
       },
     },
@@ -99,7 +103,20 @@ function present(quote) {
     quote.user?.invoiceConfig?.invoiceIncludeTaxIdentifiers ?? true;
   out.showClientIdentifiers =
     quote.user?.invoiceConfig?.invoiceIncludeClientIdentifiers ?? true;
-  out.watermark = quote.user?.plan !== "MAX";
+  /* Spec 09, decided by the shared rule rather than by a plan check written
+     here. `plan !== "MAX"` was the same invented rule the pay page used to
+     carry: it ignored the account's own attribution setting entirely, so a Max
+     customer who had LEFT our line switched on had it stripped from this page
+     while the invoice that followed still printed it. One function decides for
+     every surface — see utils/attribution.js.
+
+     Null when nothing should be drawn, so the template has no
+     hidden-but-present block to get wrong. */
+  out.attribution = attributionFor({
+    plan: quote.user?.plan,
+    enabled: quote.user?.invoiceConfig?.attributionEnabled,
+    surface: "quote",
+  });
   /* Lifted to the top level like the other display flags, so the page reads one
      field rather than reaching through a nested user object — and so nothing
      else from `user` can drift into a public payload later. */
