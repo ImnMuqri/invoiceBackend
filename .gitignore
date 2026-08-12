@@ -5,3 +5,9 @@ node_modules
 /generated/prisma
 
 /src/generated/prisma
+
+# Locally-uploaded logos. These are a dev-only fallback — production stores them
+# in R2 — and committing somebody's logo to the repo is both noise and a small
+# privacy leak.
+public/uploads/*
+!public/uploads/.gitkeep

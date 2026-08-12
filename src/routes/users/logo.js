@@ -1,6 +1,27 @@
-const path = require("path");
-const fs = require("fs");
-const { pipeline } = require("stream/promises");
+/**
+ * The account's logo — upload and removal.
+ *
+ * Storage lives in utils/storage.js (Cloudflare R2, with a local-disk fallback
+ * for development). This file is the request handling and the ownership rules.
+ *
+ * Two things this route did not do before, both of which cost something real:
+ *
+ *   1. It wrote to the container filesystem, which is ephemeral on Railway —
+ *      so every deploy silently erased every user's letterhead while logoUrl
+ *      still pointed at the file. Invoices then went out unbranded, and a
+ *      broken <img> renders as nothing, so nobody reported it.
+ *
+ *   2. It never deleted the PREVIOUS logo on replacement. Change your logo ten
+ *      times and ten files stayed on disk forever, only the last of them
+ *      reachable. Now the old object is removed after the new one is safely
+ *      stored.
+ */
+
+const {
+  ALLOWED_MIME,
+  putLogo,
+  deleteLogo,
+} = require("../../utils/storage");
 
 module.exports = async function (fastify, opts) {
   fastify.post(
@@ -12,38 +33,67 @@ module.exports = async function (fastify, opts) {
         return reply.badRequest("No file uploaded");
       }
 
-      // Validate file type
-      const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/svg+xml"];
-      if (!allowedTypes.includes(data.mimetype)) {
-        return reply.badRequest("Invalid file type. Only JPG, PNG, WEBP, and SVG are allowed.");
+      if (!ALLOWED_MIME.includes(data.mimetype)) {
+        return reply.badRequest(
+          "Invalid file type. Only JPG, PNG, WEBP, and SVG are allowed.",
+        );
       }
 
       const userId = request.user.id;
-      const extension = path.extname(data.filename) || ".png";
-      const fileName = `logo_${userId}_${Date.now()}${extension}`;
-      const uploadPath = path.join(__dirname, "../../../public/uploads", fileName);
 
+      /* Read BEFORE writing the new one, so the old object can be cleaned up
+         afterwards. Read after, and the row already points at the replacement
+         and the previous file is unreachable — orphaned rather than deleted. */
+      const existing = await fastify.prisma.userProfile.findUnique({
+        where: { userId },
+        select: { logoUrl: true },
+      });
+
+      let stored;
       try {
-        await pipeline(data.file, fs.createWriteStream(uploadPath));
-
-        const logoUrl = `/public/uploads/${fileName}`;
-
-        // Update user profile with the new logo URL
-        await fastify.prisma.userProfile.update({
-          where: { userId: userId },
-          data: { logoUrl: logoUrl },
+        stored = await putLogo({
+          file: data.file,
+          mimetype: data.mimetype,
+          userId,
         });
-
-        return {
-          status: "success",
-          message: "Logo uploaded successfully",
-          logoUrl: logoUrl,
-        };
       } catch (err) {
-        fastify.log.error(err);
+        /* @fastify/multipart raises this once the 5MB limit is passed. Worth
+           its own message: "failed to save" reads as our fault, and the user
+           can act on a size limit. */
+        if (err?.code === "FST_REQ_FILE_TOO_LARGE") {
+          return reply.badRequest("That image is over 5MB. Try a smaller one.");
+        }
+        fastify.log.error({ err, userId }, "Logo upload failed");
         return reply.internalServerError("Failed to save logo");
       }
-    }
+
+      try {
+        await fastify.prisma.userProfile.update({
+          where: { userId },
+          data: { logoUrl: stored.url },
+        });
+      } catch (err) {
+        /* The object is stored but the row is not pointing at it. Remove the
+           orphan rather than leaving a file nobody can reach or delete. */
+        fastify.log.error({ err, userId }, "Logo stored but profile not updated");
+        await deleteLogo(fastify, stored.url);
+        return reply.internalServerError("Failed to save logo");
+      }
+
+      /* Only now — the new one is stored and pointed at, so losing the old one
+         can no longer leave the account with no logo at all. */
+      if (existing?.logoUrl && existing.logoUrl !== stored.url) {
+        await deleteLogo(fastify, existing.logoUrl);
+      }
+
+      fastify.log.info({ userId, storage: stored.storage }, "Logo updated");
+
+      return {
+        status: "success",
+        message: "Logo uploaded successfully",
+        logoUrl: stored.url,
+      };
+    },
   );
 
   fastify.delete(
@@ -54,30 +104,29 @@ module.exports = async function (fastify, opts) {
 
       try {
         const profile = await fastify.prisma.userProfile.findUnique({
-          where: { userId: userId },
+          where: { userId },
           select: { logoUrl: true },
         });
 
-        if (profile && profile.logoUrl) {
-          const filePath = path.join(__dirname, "../../../", profile.logoUrl);
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-          }
-        }
-
+        /* The COLUMN is cleared first and the object deleted after. The user
+           asked for their logo gone from their invoices; that is the row. A
+           delete that fails at the bucket must not leave the logo still
+           printing on documents. */
         await fastify.prisma.userProfile.update({
-          where: { userId: userId },
+          where: { userId },
           data: { logoUrl: null },
         });
+
+        await deleteLogo(fastify, profile?.logoUrl);
 
         return {
           status: "success",
           message: "Logo removed successfully",
         };
       } catch (err) {
-        fastify.log.error(err);
+        fastify.log.error({ err, userId }, "Logo removal failed");
         return reply.internalServerError("Failed to remove logo");
       }
-    }
+    },
   );
 };

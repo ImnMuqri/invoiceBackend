@@ -225,6 +225,15 @@ async function build() {
     options: { prefix: "/api" },
   });
 
+  /* Says which storage logos are going to. Same reasoning as the
+     XENDIT_CALLBACK_TOKEN warning above: not required to boot, because
+     refusing to start over it would take production down for a variable that
+     has never been set — but absolutely not optional either. Unconfigured in
+     production means uploads go to a filesystem the next deploy erases, and
+     every user's letterhead disappears from their invoices with no error
+     anywhere. Logged as an error there, a warning in development. */
+  require("./src/utils/storage").reportStorage(fastify);
+
   return fastify;
 }
 
