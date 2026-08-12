@@ -2,7 +2,6 @@ const {
   renderInvoiceMessage,
   renderQuoteMessage,
   waShareUrl,
-  waWebUrl,
 } = require("../../utils/whatsappMessage");
 const {
   ensurePublicToken,
@@ -288,16 +287,11 @@ async function whatsappRoutes(fastify, opts) {
         invoiceUrl: `${frontendOrigin()}/pay/${invoice.id}`,
       });
 
-      /* Both forms, and the CLIENT picks. The server cannot tell a laptop from a
-         phone reliably enough to decide for it — a user agent is a guess, and
-         getting it wrong sends a desktop user through an interstitial or a phone
-         user to a web app that tells them to scan a QR code. */
+      /* `url` is null when the client has no phone number. The UI must say so
+         rather than open anything — see waShareUrl. */
       return {
         text,
         url: waShareUrl({ phone: invoice.client?.phone, text }),
-        webUrl: waWebUrl({ phone: invoice.client?.phone, text }),
-        /* So the UI can say whose chat this opens, and warn when it will open
-           WhatsApp's contact picker instead. */
         hasPhone: !!invoice.client?.phone,
         clientName: invoice.client?.name || "",
       };
@@ -334,7 +328,6 @@ async function whatsappRoutes(fastify, opts) {
       return {
         text,
         url: waShareUrl({ phone: quote.client?.phone, text }),
-        webUrl: waWebUrl({ phone: quote.client?.phone, text }),
         hasPhone: !!quote.client?.phone,
         clientName: quote.client?.name || "",
       };

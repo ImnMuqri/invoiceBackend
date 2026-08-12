@@ -27,7 +27,6 @@ const {
   renderInvoiceMessage,
   renderQuoteMessage,
   waShareUrl,
-  waWebUrl,
 } = require("../utils/whatsappMessage");
 
 let passed = 0;
@@ -217,50 +216,26 @@ test("a decorated number is reduced to digits rather than trusted", () => {
   );
 });
 
-test("no phone number still produces a usable link", () => {
-  /* WhatsApp shows its own contact picker. Better than refusing — the wording is
-     the part that took work. */
-  const url = waShareUrl({ phone: null, text: "hello" });
-  assert.strictEqual(url, "https://wa.me/?text=hello");
+test("it is wa.me, so the link lands on the client's chat", () => {
+  const url = waShareUrl({ phone: "60123456789", text: "x" });
+  /* NOT web.whatsapp.com/send. That skips wa.me's "Continue to Chat" step and
+     opens the sender's own WhatsApp Web without the client's conversation —
+     which is indistinguishable from the feature being broken. */
+  assert.ok(url.startsWith("https://wa.me/"));
+  assert.ok(!url.includes("web.whatsapp.com"));
 });
 
-test("the web link opens WhatsApp Web on the chat, with no interstitial", () => {
-  const url = waWebUrl({ phone: "60123456789", text: "Hi & bye" });
-  /* web.whatsapp.com/send rather than wa.me: on a desktop, wa.me stops at a
-     "Continue to Chat" page first, and this feature exists for somebody at a
-     laptop with WhatsApp Web already open. */
-  assert.ok(url.startsWith("https://web.whatsapp.com/send?phone=60123456789&text="));
-  assert.ok(url.includes("Hi%20%26%20bye"));
-});
-
-test("the web link strips a decorated number too", () => {
-  assert.ok(
-    waWebUrl({ phone: "+60 12-345 6789", text: "x" }).startsWith(
-      "https://web.whatsapp.com/send?phone=60123456789&",
-    ),
-  );
-});
-
-test("with no number the web link falls back to wa.me's contact picker", () => {
-  /* WhatsApp Web's send endpoint expects a phone and does not reliably offer a
-     picker without one — aiming there would risk a blank WhatsApp Web with the
-     message dropped, which loses the part that took work. */
-  assert.strictEqual(
-    waWebUrl({ phone: "", text: "hello" }),
-    "https://wa.me/?text=hello",
-  );
-});
-
-test("both links carry the same message", () => {
-  const text = renderInvoiceMessage({
-    invoice: INVOICE,
-    profile: PROFILE,
-    invoiceUrl: "https://invokita.my/pay/7",
-  });
-  const body = encodeURIComponent(text);
-
-  assert.ok(waShareUrl({ phone: "60123456789", text }).includes(body));
-  assert.ok(waWebUrl({ phone: "60123456789", text }).includes(body));
+test("no phone number yields no link at all", () => {
+  /* Rather than wa.me/?text=…, which opens WhatsApp with nothing selected and
+     reads as "it opened my own WhatsApp and did nothing". The caller shows "no
+     phone number saved for this client" instead of opening a dead window. */
+  for (const phone of [null, undefined, "", "   ", "not-a-number"]) {
+    assert.strictEqual(
+      waShareUrl({ phone, text: "hello" }),
+      null,
+      `phone: ${JSON.stringify(phone)}`,
+    );
+  }
 });
 
 test("the defaults match the ones the settings screen previews", () => {

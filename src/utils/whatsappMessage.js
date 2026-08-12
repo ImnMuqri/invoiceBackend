@@ -155,41 +155,21 @@ function renderQuoteMessage({ quote, profile = {}, quoteUrl }) {
  * reaching this produces a link that opens WhatsApp on a blank chat, which
  * looks like the feature is broken rather than like the number is.
  *
- * With no number it returns the message-only form. WhatsApp then asks the sender
- * to pick a contact, which is the right outcome for a client whose phone we do
- * not have — better than refusing, because the wording is still worth having.
+ * With no number it returns null rather than a message-only link. That form
+ * opens WhatsApp with no conversation selected, which reads as "it opened my own
+ * WhatsApp and did nothing" — the caller should say the client has no phone
+ * number saved instead of opening a window that looks broken.
+ *
+ * wa.me and NOT web.whatsapp.com/send. The latter skips wa.me's "Continue to
+ * Chat" step, which looks like a win until it lands on your own WhatsApp Web
+ * without opening the client's chat. wa.me is the documented click-to-chat entry
+ * point, it resolves to the app on a phone and to WhatsApp Web on a desktop, and
+ * it reliably lands ON THE CLIENT'S CHAT. The extra click is worth that.
  */
 function waShareUrl({ phone, text }) {
   const digits = String(phone || "").replace(/\D/g, "");
-  const body = encodeURIComponent(text || "");
-  return digits
-    ? `https://wa.me/${digits}?text=${body}`
-    : `https://wa.me/?text=${body}`;
-}
-
-/**
- * The same message, aimed at WhatsApp Web specifically.
- *
- * wa.me is the universal link: on a phone it hands straight to the app, but on a
- * desktop it lands on an interstitial page with a "Continue to Chat" button
- * before WhatsApp Web opens. That extra click is pure friction for the case this
- * feature is actually for — somebody at a laptop, working through their invoices,
- * who has WhatsApp Web already open in another tab.
- *
- * web.whatsapp.com/send skips it and opens the conversation directly.
- *
- * WITHOUT A NUMBER it falls back to the wa.me form, deliberately. WhatsApp Web's
- * send endpoint expects a phone and does not reliably offer a contact picker
- * without one, so aiming there with no number can land the user on a blank
- * WhatsApp Web with the message silently dropped — worse than the interstitial,
- * because the wording is lost. wa.me does present the picker.
- */
-function waWebUrl({ phone, text }) {
-  const digits = String(phone || "").replace(/\D/g, "");
-  if (!digits) return waShareUrl({ phone, text });
-  return `https://web.whatsapp.com/send?phone=${digits}&text=${encodeURIComponent(
-    text || "",
-  )}`;
+  if (!digits) return null;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text || "")}`;
 }
 
 module.exports = {
@@ -200,5 +180,4 @@ module.exports = {
   renderInvoiceMessage,
   renderQuoteMessage,
   waShareUrl,
-  waWebUrl,
 };
