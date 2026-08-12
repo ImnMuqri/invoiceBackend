@@ -19,7 +19,7 @@ function frontendOrigin() {
 async function whatsappRoutes(fastify, opts) {
   // Manual trigger for automated chaser (for testing/admin)
   fastify.post(
-    "/whatsapp/run-chaser",
+    "/run-chaser",
     { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       try {
@@ -36,7 +36,7 @@ async function whatsappRoutes(fastify, opts) {
 
   // Send specific invoice via WhatsApp
   fastify.post(
-    "/whatsapp/send/:id",
+    "/send/:id",
     { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const { id } = request.params;
@@ -133,7 +133,7 @@ async function whatsappRoutes(fastify, opts) {
 
   // Send manual reminder for specific invoice via WhatsApp
   fastify.post(
-    "/whatsapp/remind/:id",
+    "/remind/:id",
     { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const { id } = request.params;
@@ -263,7 +263,7 @@ async function whatsappRoutes(fastify, opts) {
   };
 
   fastify.get(
-    "/whatsapp/share/invoice/:id",
+    "/share/invoice/:id",
     { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const id = parseInt(request.params.id, 10);
@@ -305,7 +305,7 @@ async function whatsappRoutes(fastify, opts) {
   );
 
   fastify.get(
-    "/whatsapp/share/quote/:id",
+    "/share/quote/:id",
     { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const id = parseInt(request.params.id, 10);
