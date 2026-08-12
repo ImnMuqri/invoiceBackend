@@ -15,6 +15,8 @@ async function systemRoutes(fastify, opts) {
             invoiceCreationEnabled: true,
             paymentsEnabled: true,
             planUpgradesEnabled: true,
+            autoChaseEmailEnabled: true,
+            autoChaseWaEnabled: true,
             globalNotice: null,
             maintenanceMode: false,
           }
@@ -37,6 +39,8 @@ async function systemRoutes(fastify, opts) {
         invoiceCreationEnabled,
         paymentsEnabled,
         planUpgradesEnabled,
+        autoChaseEmailEnabled,
+        autoChaseWaEnabled,
         globalNotice,
         maintenanceMode
       } = request.body;
@@ -51,6 +55,8 @@ async function systemRoutes(fastify, opts) {
             invoiceCreationEnabled: invoiceCreationEnabled ?? true,
             paymentsEnabled: paymentsEnabled ?? true,
             planUpgradesEnabled: planUpgradesEnabled ?? true,
+            autoChaseEmailEnabled: autoChaseEmailEnabled ?? true,
+            autoChaseWaEnabled: autoChaseWaEnabled ?? true,
             globalNotice: globalNotice ?? null,
             maintenanceMode: maintenanceMode ?? false,
           }
@@ -65,6 +71,8 @@ async function systemRoutes(fastify, opts) {
           ...(invoiceCreationEnabled !== undefined && { invoiceCreationEnabled }),
           ...(paymentsEnabled !== undefined && { paymentsEnabled }),
           ...(planUpgradesEnabled !== undefined && { planUpgradesEnabled }),
+          ...(autoChaseEmailEnabled !== undefined && { autoChaseEmailEnabled }),
+          ...(autoChaseWaEnabled !== undefined && { autoChaseWaEnabled }),
           ...(globalNotice !== undefined && { globalNotice }),
           ...(maintenanceMode !== undefined && { maintenanceMode }),
         }

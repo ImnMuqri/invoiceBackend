@@ -34,6 +34,11 @@ async function systemRoutes(fastify, opts) {
         invoiceCreationEnabled: cfg.invoiceCreationEnabled,
         paymentsEnabled: cfg.paymentsEnabled,
         planUpgradesEnabled: cfg.planUpgradesEnabled,
+        /* Published because a user whose chaser has gone quiet needs to know it
+           is us and not their own settings — Settings → Notifications says so
+           next to the switches they would otherwise start toggling. */
+        autoChaseEmailEnabled: cfg.autoChaseEmailEnabled,
+        autoChaseWaEnabled: cfg.autoChaseWaEnabled,
         globalNotice: cfg.globalNotice,
         maintenanceMode: cfg.maintenanceMode,
       };

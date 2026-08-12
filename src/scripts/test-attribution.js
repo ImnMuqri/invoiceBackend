@@ -45,6 +45,17 @@ test("free accounts always show it, whatever the flag says", () => {
   assert.strictEqual(showAttribution(undefined, false), true);
 });
 
+test("pro accounts always show it too — removal is a Max feature", () => {
+  /* The flag is IGNORED here, not merely defaulted on. A Pro account that
+     switched it off while removal was available on every paid plan must not
+     keep an opt-out the plan no longer grants, or the entitlement quietly
+     depends on when somebody signed up rather than on what they pay for. */
+  assert.strictEqual(showAttribution("PRO", true), true);
+  assert.strictEqual(showAttribution("PRO", false), true);
+  assert.strictEqual(showAttribution("pro", false), true);
+  assert.strictEqual(canRemoveAttribution("PRO"), false);
+});
+
 test("an unrecognised plan is treated as PAID, unlike the quota rules", () => {
   /* Deliberately the opposite direction to usage.js, which floors an unknown
      plan at zero. The two are not the same kind of decision:
@@ -63,33 +74,37 @@ test("an unrecognised plan is treated as PAID, unlike the quota rules", () => {
   assert.strictEqual(showAttribution("SOMETHING_ELSE", undefined), true);
 });
 
-test("paid plans show it by default", () => {
-  for (const plan of ["PRO", "MAX", "STARTER"]) {
+test("every plan shows it by default", () => {
+  for (const plan of ["FREE", "PRO", "MAX", "STARTER"]) {
     assert.strictEqual(showAttribution(plan, undefined), true, plan);
     assert.strictEqual(showAttribution(plan, null), true, plan);
     assert.strictEqual(showAttribution(plan, true), true, plan);
   }
 });
 
-test("paid plans can switch it off", () => {
-  for (const plan of ["PRO", "MAX", "STARTER"]) {
-    assert.strictEqual(showAttribution(plan, false), false, plan);
-    assert.strictEqual(canRemoveAttribution(plan), true, plan);
+test("only Max can switch it off", () => {
+  assert.strictEqual(showAttribution("MAX", false), false);
+  assert.strictEqual(canRemoveAttribution("MAX"), true);
+
+  for (const plan of ["FREE", "PRO"]) {
+    assert.strictEqual(showAttribution(plan, false), true, plan);
+    assert.strictEqual(canRemoveAttribution(plan), false, plan);
   }
 });
 
-test("removal is NOT gated to the top tier", () => {
-  /* The spec is explicit: Pro and Max differ on volume only, so gating this to
-     Max would make somebody upgrade twice to take our line off their own
-     invoice — which loses accounts rather than growing them. */
-  assert.strictEqual(canRemoveAttribution("PRO"), canRemoveAttribution("MAX"));
-  assert.strictEqual(showAttribution("PRO", false), showAttribution("MAX", false));
+test("removal IS gated to the top tier", () => {
+  /* This reverses the earlier rule, which held that Pro and Max differ on
+     volume only. Recorded rather than deleted because the argument against
+     gating is still a real one — somebody upgrading twice to take our line off
+     their own invoice is a plausible way to lose an account — and whoever
+     revisits this should weigh it again rather than rediscover it. */
+  assert.notStrictEqual(canRemoveAttribution("PRO"), canRemoveAttribution("MAX"));
 });
 
 test("a missing config row is treated as ON, not as an opt-out", () => {
   /* The column defaults to true. An account with no UserInvoiceConfig row at
      all must not silently become opted out. */
-  assert.strictEqual(showAttribution("PRO", undefined), true);
+  assert.strictEqual(showAttribution("MAX", undefined), true);
 });
 
 console.log("\nWhat the surfaces get\n");
@@ -98,7 +113,7 @@ test("attributionFor returns null rather than a hidden object", () => {
   /* Templates do `v-if="attribution"`. Returning { show: false } would let a
      surface render a hidden-but-present block, which is the shape this kind of
      flag usually fails in. */
-  assert.strictEqual(attributionFor({ plan: "PRO", enabled: false }), null);
+  assert.strictEqual(attributionFor({ plan: "MAX", enabled: false }), null);
 });
 
 test("attributionFor returns text and a link when it should show", () => {

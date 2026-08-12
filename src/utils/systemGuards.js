@@ -62,4 +62,39 @@ async function assertPlanChangesEnabled(prisma, reply, targetPlan) {
   return true;
 }
 
-module.exports = { assertCreationEnabled, assertPlanChangesEnabled };
+/**
+ * Which channels the AUTOMATED chaser may use right now.
+ *
+ * Not an assert like the two above, because there is no reply to fail: the
+ * caller is the cron, and nobody is waiting on a response. It returns a pair of
+ * booleans and the cron decides what to do with them.
+ *
+ * TWO SWITCHES ARE CONSULTED PER CHANNEL, and both have to be on:
+ *
+ *   * `emailEnabled` / `whatsappEnabled` — the channel itself. If email is down
+ *     platform-wide, the chaser must not be the one component still trying to
+ *     use it. Nothing checked this before: those switches gated the routes a
+ *     user touches, while the cron went on sending unattended, which is the
+ *     opposite of the priority an admin has during an outage.
+ *   * `autoChaseEmailEnabled` / `autoChaseWaEnabled` — the chaser alone, for
+ *     when the channel is healthy and it is the automation that has gone wrong.
+ *
+ * Reads through the 60s config cache, so a sweep does not add a query per user,
+ * and an admin flipping a switch has it apply on the next run rather than after
+ * a deploy.
+ *
+ * Missing config counts as enabled, matching every other default here.
+ */
+async function autoChaseChannels(fastify) {
+  const cfg = (await fastify.getSystemConfig()) || {};
+  return {
+    email: cfg.emailEnabled !== false && cfg.autoChaseEmailEnabled !== false,
+    whatsapp: cfg.whatsappEnabled !== false && cfg.autoChaseWaEnabled !== false,
+  };
+}
+
+module.exports = {
+  assertCreationEnabled,
+  assertPlanChangesEnabled,
+  autoChaseChannels,
+};

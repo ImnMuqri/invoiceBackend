@@ -31,6 +31,8 @@ async function prismaPlugin(fastify, opts) {
             invoiceCreationEnabled: true,
             paymentsEnabled: true,
             planUpgradesEnabled: true,
+            autoChaseEmailEnabled: true,
+            autoChaseWaEnabled: true,
             globalNotice: null,
             maintenanceMode: false,
           },

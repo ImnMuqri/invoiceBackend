@@ -23,6 +23,14 @@
 /**
  * Plans that cannot remove it.
  *
+ * Removing the line is a MAX feature. It was briefly available on every paid
+ * plan, on the reasoning that gating it would make somebody upgrade twice to
+ * take our name off their own invoice — a fair argument, and the one the tests
+ * below used to pin. It was overridden deliberately: Pro and Max needed a
+ * visible difference beyond volume, and this is the one prospects understand
+ * without reading a table. If that trade stops paying, this array is the whole
+ * of the change.
+ *
  * A DENYLIST, not an allowlist, and that is the opposite of how usage.js floors
  * an unrecognised plan at zero. The two are different kinds of decision: an
  * unknown plan granting unlimited quota is free money, whereas an unknown plan
@@ -33,13 +41,13 @@
  *
  * Matched case-insensitively; a null or empty plan is free.
  */
-const FREE_PLANS = ["FREE"];
+const BRANDED_PLANS = ["FREE", "PRO"];
 
 /**
  * Should this document carry attribution?
  *
- *   free tier  → always, and the toggle is ignored
- *   paid plans → yes unless the account has switched it off
+ *   free and pro → always, and the toggle is ignored
+ *   max          → yes unless the account has switched it off
  *
  * `enabled` being null or undefined means "never chosen", which is the same as
  * on — the column defaults to true and a missing config row must not silently
@@ -47,14 +55,14 @@ const FREE_PLANS = ["FREE"];
  */
 function showAttribution(plan, enabled) {
   const name = String(plan || "FREE").toUpperCase();
-  if (FREE_PLANS.includes(name)) return true;
+  if (BRANDED_PLANS.includes(name)) return true;
   return enabled !== false;
 }
 
 /** True when the account is allowed to turn it off at all. */
 function canRemoveAttribution(plan) {
   const name = String(plan || "FREE").toUpperCase();
-  return !FREE_PLANS.includes(name);
+  return !BRANDED_PLANS.includes(name);
 }
 
 /**
@@ -115,5 +123,5 @@ module.exports = {
   attributionUrl,
   attributionFor,
   COPY,
-  FREE_PLANS,
+  BRANDED_PLANS,
 };

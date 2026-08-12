@@ -1,6 +1,7 @@
 const fp = require("fastify-plugin");
 const cron = require("node-cron");
 const { createNotification } = require("../utils/notificationUtils");
+const { autoChaseChannels } = require("../utils/systemGuards");
 
 async function cronPlugin(fastify, opts) {
   // Function to process reminders
@@ -9,6 +10,18 @@ async function cronPlugin(fastify, opts) {
 
     try {
       const now = new Date();
+
+      /* The admin switches, read once for the whole sweep. Both senders check
+         them again for themselves — this is the early exit, not the
+         enforcement, because a sweep can run for a while and the switch that
+         matters is the one in force when the message actually goes out. */
+      const channels = await autoChaseChannels(fastify);
+      if (!channels.email && !channels.whatsapp) {
+        fastify.log.warn(
+          "Automated chaser is switched off for both channels — no reminders will be sent this run.",
+        );
+        return;
+      }
 
       // 1. Find users who have automated reminders enabled via UserNotification
       const users = await fastify.prisma.user.findMany({
@@ -159,6 +172,19 @@ async function cronPlugin(fastify, opts) {
    * had. Silence is bad; a false record of contact is worse.
    */
   const sendEmailReminder = async (user, invoice) => {
+    /* Checked HERE rather than only at the call sites, because this function
+       has two callers and one of them is the WhatsApp downgrade path. A switch
+       tested only where the email branch begins would still let a downgraded
+       WhatsApp chase send email after an admin had switched email chasing off. */
+    const channels = await autoChaseChannels(fastify);
+    if (!channels.email) {
+      fastify.log.info(
+        { invoiceId: invoice.id },
+        "Email reminder skipped: automated email chasing is switched off platform-wide",
+      );
+      return false;
+    }
+
     if (!invoice.client?.email) {
       fastify.log.warn(
         { invoiceId: invoice.id, clientId: invoice.clientId },
@@ -227,7 +253,19 @@ async function cronPlugin(fastify, opts) {
          recorded as downgraded — it does not mean the client hears nothing.
          An invoice chased twice and then abandoned is worse than one never
          chased, because the user blames us for the unpaid invoice. */
-      const decision = await fastify.chase.canChase(user.id, invoice.id);
+      /* The admin switch is checked BEFORE the allowance, and produces the same
+         shape of refusal, so switching WhatsApp chasing off routes through the
+         downgrade path that already exists rather than through a new one: the
+         chase goes by email, recorded as downgraded, with a reason a support
+         reply can quote. Turning WhatsApp off does not mean the client hears
+         nothing — that takes switching email off as well. */
+      const channels = await autoChaseChannels(fastify);
+      const decision = channels.whatsapp
+        ? await fastify.chase.canChase(user.id, invoice.id)
+        : {
+            allowed: false,
+            reason: "WhatsApp chasing is switched off platform-wide",
+          };
       if (!decision.allowed) {
         fastify.log.info(
           { invoiceId: invoice.id, reason: decision.reason },
@@ -253,8 +291,8 @@ async function cronPlugin(fastify, opts) {
           await fastify.chase.notifyDowngradeOnce(user.id);
         } else {
           fastify.log.warn(
-            { invoiceId: invoice.id },
-            "WhatsApp allowance spent and client has no email — invoice not chased this run",
+            { invoiceId: invoice.id, reason: decision.reason },
+            "WhatsApp reminder could not be downgraded to email — invoice not chased this run",
           );
         }
         return;

@@ -1020,6 +1020,17 @@ model SystemConfiguration {
   /// keep renewing, and cancelling down to Free stays available — the switch
   /// stops new commitments, it does not strip anyone of what they bought.
   planUpgradesEnabled    Boolean  @default(true)
+  /// Off = the automated chaser sends no email reminders to anybody. Scoped to
+  /// the CRON only: a user emailing an invoice by hand is unaffected, and so is
+  /// every other transactional email. Use `emailEnabled` to stop the channel
+  /// outright.
+  autoChaseEmailEnabled  Boolean  @default(true)
+  /// Off = the automated chaser sends no WhatsApp reminders. A scheduled chase
+  /// is not dropped, it DOWNGRADES to email — same path as running out of
+  /// allowance, and for the same reason (spec 01: an invoice chased twice and
+  /// then abandoned is worse than one never chased). Switch both off for
+  /// silence.
+  autoChaseWaEnabled     Boolean  @default(true)
   globalNotice           String?
   maintenanceMode        Boolean  @default(false)
   updatedAt              DateTime @updatedAt
