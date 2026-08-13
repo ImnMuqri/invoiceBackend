@@ -31,6 +31,7 @@
  */
 
 const { sen } = require("./invoiceMoney");
+const { normalisePhone } = require("./phoneNormalise");
 
 /**
  * What goes out when the sender has not written their own.
@@ -149,27 +150,43 @@ function renderQuoteMessage({ quote, profile = {}, quoteUrl }) {
 /**
  * A wa.me link that opens the chat with the message already typed.
  *
- * `phone` must be the canonical stored form — digits, international, no plus,
- * which is what phoneNormalise writes ("60123456789"). wa.me wants exactly
- * that, so anything else is stripped rather than trusted: a stray "+" or dash
- * reaching this produces a link that opens WhatsApp on a blank chat, which
- * looks like the feature is broken rather than like the number is.
+ * THE NUMBER MUST BE INTERNATIONAL. wa.me reads the path segment as a full
+ * international number with no plus — "60163590309". Hand it the local form
+ * everybody actually types, "0163590309", and WhatsApp does not error: it looks
+ * up a number that does not exist and shows "no account with this number" on a
+ * phone, or a grey empty page on WhatsApp Web. That looks like the feature is
+ * broken rather than like the number needs a country code.
  *
- * With no number it returns null rather than a message-only link. That form
- * opens WhatsApp with no conversation selected, which reads as "it opened my own
- * WhatsApp and did nothing" — the caller should say the client has no phone
- * number saved instead of opening a window that looks broken.
+ * Stripping punctuation is NOT enough, which is what this used to do. "01635…"
+ * survives a \D strip completely intact and is still wrong.
  *
- * wa.me and NOT web.whatsapp.com/send. The latter skips wa.me's "Continue to
- * Chat" step, which looks like a win until it lands on your own WhatsApp Web
- * without opening the client's chat. wa.me is the documented click-to-chat entry
- * point, it resolves to the app on a phone and to WhatsApp Web on a desktop, and
- * it reliably lands ON THE CLIENT'S CHAT. The extra click is worth that.
+ * So it goes through normalisePhone, the same module client import uses — the
+ * one place that knows 016 is a nine-digit Malaysian mobile prefix and that the
+ * leading zero is replaced by 60 rather than kept. Clients created through the
+ * form are stored exactly as typed, so most numbers in the database ARE local
+ * form; normalising at read time fixes every one of them without a migration.
+ *
+ * It returns null when there is no number, or when there is one that cannot be
+ * resolved to a real international number. normalisePhone refuses rather than
+ * guesses, and a refusal here is worth honouring: a wa.me link built on a guess
+ * opens a chat with a stranger.
  */
 function waShareUrl({ phone, text }) {
-  const digits = String(phone || "").replace(/\D/g, "");
-  if (!digits) return null;
-  return `https://wa.me/${digits}?text=${encodeURIComponent(text || "")}`;
+  const number = normalisePhone(phone);
+  if (!number.ok) return null;
+  return `https://wa.me/${number.value}?text=${encodeURIComponent(text || "")}`;
+}
+
+/**
+ * Why a share link could not be built, as something the UI can say out loud.
+ *
+ * Split from waShareUrl so a caller can tell "no number saved" from "the number
+ * saved is not one WhatsApp can dial" — different sentences, different fixes,
+ * and the second one is invisible unless somebody says it.
+ */
+function phoneProblem(phone) {
+  if (!String(phone || "").trim()) return "missing";
+  return normalisePhone(phone).ok ? null : "unusable";
 }
 
 module.exports = {
@@ -180,4 +197,5 @@ module.exports = {
   renderInvoiceMessage,
   renderQuoteMessage,
   waShareUrl,
+  phoneProblem,
 };

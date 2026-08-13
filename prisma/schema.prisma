@@ -47,15 +47,15 @@ model User {
   /// got confused in the first place. Never negative — reversal floors at zero
   /// rather than putting an account into debt over a chargeback it did not
   /// commit.
-  referralCreditSen    Int     @default(0)
+  referralCreditSen Int @default(0)
 
   /// When the referral link was clicked, for the attribution window. Set at
   /// signup from the click record; null for accounts that arrived directly.
-  referredAt           DateTime?
+  referredAt DateTime?
 
-  referralsMade        Referral[] @relation("ReferralReferrer")
-  referralReceived     Referral?  @relation("ReferralReferred")
-  referralClicks       ReferralClick[]
+  referralsMade    Referral[]      @relation("ReferralReferrer")
+  referralReceived Referral?       @relation("ReferralReferred")
+  referralClicks   ReferralClick[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -159,8 +159,22 @@ model UserNotification {
   reminderInterval         Int       @default(0)
   whatsappReminderInterval Int       @default(0)
   whatsappMode             String    @default("SYSTEM")
-  whatsappSendTemplate     String?   @default("{{userName}} {{companyName}} via InvoKita\n\nHello {{clientName}}, here is your invoice {{invoiceNumber}} for {{totalAmount}} {{currency}}. Due on {{dueDate}}. View here: {{invoiceUrl}}")
-  whatsappReminderTemplate String?   @default("{{userName}} {{companyName}} via InvoKita\n\nFriendly reminder for {{clientName}}: Your invoice {{invoiceNumber}} ({{totalAmount}} {{currency}}) is due on {{dueDate}}. Please ignore if already paid.")
+  /**
+   * NO DEFAULT. These are "the sender's own wording, if they wrote one", and
+   * null means "use ours" — which is what the settings screen says, showing our
+   * text as a placeholder and the words "Leave either blank to use ours".
+   * A column default broke that promise silently: every row was born holding a
+   * copy of one particular wording, so the value was never null, the
+   * application-level fallback in utils/whatsappMessage could never fire, and a
+   * user who had never touched the field was shown one message in the preview
+   * and sent their client a different one. Two sources of truth for the same
+   * sentence, and the invisible one won.
+   * The default lives in utils/whatsappMessage now, in code, next to the
+   * renderer that applies it and covered by a test that compares it against the
+   * settings screen.
+   */
+  whatsappSendTemplate     String?
+  whatsappReminderTemplate String?
   twilioSid                String?
   twilioAuthToken          String?
   twilioPhoneNumber        String?
@@ -179,33 +193,33 @@ model UserNotification {
   ///
   /// Set when that happens; cleared when the prompt is shown or dismissed.
   /// Null means there is nothing to celebrate and nothing should be asked.
-  sharePromptEligibleAt    DateTime?
+  sharePromptEligibleAt DateTime?
   /// When it was last put in front of them, for the frequency cap.
-  sharePromptShownAt       DateTime?
+  sharePromptShownAt    DateTime?
   /// Two dismissals and it never appears again. Somebody who has said no
   /// twice has answered the question, and a third ask is nagging.
-  sharePromptDismissals    Int       @default(0)
+  sharePromptDismissals Int       @default(0)
 
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ─────────────────────────────────────────────
 // UserInvoiceConfig — Invoice Branding & Defaults
 // ─────────────────────────────────────────────
 model UserInvoiceConfig {
-  id                              Int      @id @default(autoincrement())
-  userId                          Int      @unique
-  user                            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  invoicePrefix                   String   @default("INV")
+  id                              Int     @id @default(autoincrement())
+  userId                          Int     @unique
+  user                            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invoicePrefix                   String  @default("INV")
   /// Quotes get their own prefix and their own sequence, so issuing a quote
   /// never advances the invoice numbering. An accountant reading a run of
   /// invoice numbers with gaps in it will ask why.
-  quotePrefix                     String   @default("QUO")
+  quotePrefix                     String  @default("QUO")
   /// Credit notes carry their own sequence; an accountant expects them
   /// numbered separately from invoices.
-  creditNotePrefix                String   @default("CN")
-  defaultTaxRate                  Float    @default(0.0)
+  creditNotePrefix                String  @default("CN")
+  defaultTaxRate                  Float   @default(0.0)
   /// WHAT A NEW ACCOUNT PRINTS.
   ///
   /// The BUSINESS three — name, phone, email — and nothing else. An invoice has
@@ -223,12 +237,12 @@ model UserInvoiceConfig {
   /// and at least one CONTACT (phone or email) always prints. A document that
   /// names nobody, or names somebody with no way to reach them, is not a
   /// document.
-  invoiceIncludeName              Boolean  @default(false)
-  invoiceIncludeEmail             Boolean  @default(true)
-  invoiceIncludePersonalPhone     Boolean  @default(false)
-  invoiceIncludeCompanyPhone      Boolean  @default(true)
-  invoiceIncludeCompanyName       Boolean  @default(true)
-  invoiceIncludeAddress           Boolean  @default(false)
+  invoiceIncludeName              Boolean @default(false)
+  invoiceIncludeEmail             Boolean @default(true)
+  invoiceIncludePersonalPhone     Boolean @default(false)
+  invoiceIncludeCompanyPhone      Boolean @default(true)
+  invoiceIncludeCompanyName       Boolean @default(true)
+  invoiceIncludeAddress           Boolean @default(false)
   /// One switch per block rather than one per field (spec 05). The fields only
   /// ever render when they are actually filled in, so these exist for the user
   /// who has entered their identifiers and does not want them on the document —
@@ -237,8 +251,8 @@ model UserInvoiceConfig {
   /// an identifier is actually entered, so this changes no document — but a
   /// switch nobody asked for should not open in the on position, which is what
   /// made these look like a bug.
-  invoiceIncludeTaxIdentifiers    Boolean  @default(false)
-  invoiceIncludeClientIdentifiers Boolean  @default(false)
+  invoiceIncludeTaxIdentifiers    Boolean @default(false)
+  invoiceIncludeClientIdentifiers Boolean @default(false)
 
   /// "Sent with InvoKita" on the public payment page and the invoice PDF
   /// (spec 09).
@@ -253,9 +267,9 @@ model UserInvoiceConfig {
   ///
   /// The two halves are combined in exactly one place — utils/attribution.js —
   /// so the PDF and the payment page cannot disagree about what a client sees.
-  attributionEnabled              Boolean  @default(true)
-  createdAt                       DateTime @default(now())
-  updatedAt                       DateTime @updatedAt
+  attributionEnabled Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   /// Where the monthly export goes (spec 04). Null means the job is off — the
   /// address IS the switch, so there is no way to have it on and going nowhere.
@@ -346,7 +360,7 @@ model Client {
   /// Siti". Imported (spec 08) because a spreadsheet of clients nearly always
   /// has a column like this. Never rendered on a document: it is a note to
   /// self, not a note to the client.
-  notes              String?
+  notes String?
 
   @@index([userId])
   /// Import matches on phone, then email, then exact name. Without these a

@@ -27,6 +27,7 @@ const {
   renderInvoiceMessage,
   renderQuoteMessage,
   waShareUrl,
+  phoneProblem,
 } = require("../utils/whatsappMessage");
 
 let passed = 0;
@@ -236,6 +237,61 @@ test("no phone number yields no link at all", () => {
       `phone: ${JSON.stringify(phone)}`,
     );
   }
+});
+
+test("a locally-typed Malaysian number gets its country code", () => {
+  /* The number from the bug report. Clients added through the form are stored
+     exactly as typed, so this local form is what is actually in the database —
+     and wa.me/0163590309 is not a number, so WhatsApp showed "no account with
+     this number" on a phone and a grey empty page on WhatsApp Web. */
+  const url = waShareUrl({ phone: "0163590309", text: "x" });
+  assert.ok(
+    url.startsWith("https://wa.me/60163590309?"),
+    `expected 60163590309, got ${url}`,
+  );
+});
+
+test("every way a Malaysian number gets typed reaches the same link", () => {
+  const forms = [
+    "0163590309",
+    "016-359 0309",
+    "+60163590309",
+    "60163590309",
+    "0060163590309",
+    " 016 3590309 ",
+  ];
+  for (const form of forms) {
+    assert.ok(
+      waShareUrl({ phone: form, text: "x" }).startsWith(
+        "https://wa.me/60163590309?",
+      ),
+      `form: ${JSON.stringify(form)}`,
+    );
+  }
+});
+
+test("an international number is preserved rather than re-guessed", () => {
+  assert.ok(
+    waShareUrl({ phone: "+6591234567", text: "x" }).startsWith(
+      "https://wa.me/6591234567?",
+    ),
+  );
+});
+
+test("a number that cannot be resolved yields no link, not a guess", () => {
+  /* normalisePhone refuses rather than guesses, and a refusal is worth
+     honouring: a wa.me link built on a guess opens a chat with a stranger. */
+  for (const junk of ["12345", "abc", "0999999999999999"]) {
+    assert.strictEqual(waShareUrl({ phone: junk, text: "x" }), null, junk);
+  }
+});
+
+test("the two phone failures are told apart", () => {
+  assert.strictEqual(phoneProblem(""), "missing");
+  assert.strictEqual(phoneProblem(null), "missing");
+  /* Saved, but not dialable — a different sentence and a different fix. */
+  assert.strictEqual(phoneProblem("12345"), "unusable");
+  assert.strictEqual(phoneProblem("0163590309"), null);
 });
 
 test("the defaults match the ones the settings screen previews", () => {

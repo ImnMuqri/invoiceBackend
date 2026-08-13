@@ -2,6 +2,7 @@ const {
   renderInvoiceMessage,
   renderQuoteMessage,
   waShareUrl,
+  phoneProblem,
 } = require("../../utils/whatsappMessage");
 const {
   ensurePublicToken,
@@ -287,12 +288,12 @@ async function whatsappRoutes(fastify, opts) {
         invoiceUrl: `${frontendOrigin()}/pay/${invoice.id}`,
       });
 
-      /* `url` is null when the client has no phone number. The UI must say so
-         rather than open anything — see waShareUrl. */
+      /* `url` is null when there is no number, or one WhatsApp cannot dial.
+         `phoneProblem` separates those so the UI can name the right fix. */
       return {
         text,
         url: waShareUrl({ phone: invoice.client?.phone, text }),
-        hasPhone: !!invoice.client?.phone,
+        phoneProblem: phoneProblem(invoice.client?.phone),
         clientName: invoice.client?.name || "",
       };
     },
@@ -328,7 +329,7 @@ async function whatsappRoutes(fastify, opts) {
       return {
         text,
         url: waShareUrl({ phone: quote.client?.phone, text }),
-        hasPhone: !!quote.client?.phone,
+        phoneProblem: phoneProblem(quote.client?.phone),
         clientName: quote.client?.name || "",
       };
     },
