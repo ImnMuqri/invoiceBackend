@@ -1,4 +1,6 @@
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
+const { getPasswordResetEmail, RESET_TTL_MINUTES } = require("../../utils/passwordResetEmail");
 const {
   screenSignup,
   STATUS: REFERRAL_STATUS,
@@ -194,6 +196,126 @@ async function authRoutes(fastify, opts) {
   fastify.post("/logout", async (request, reply) => {
     return { success: true, message: "Logged out successfully" };
   });
+
+  /* ── Password reset ──────────────────────────────────────────────────────
+     Three steps: ask for a link (email), check a link (when the page opens),
+     spend a link (set the new password).
+
+     - The raw token only ever exists in the email. The table stores its
+       SHA-256, so a leaked row is not a working link.
+     - /forgot-password answers the same way whether or not the email has an
+       account. Saying "no such account" would let anyone test which emails
+       are customers.
+     - Tight per-IP rate limits on all three, on top of the global one. */
+
+  const hashToken = (raw) => crypto.createHash("sha256").update(raw).digest("hex");
+  const PASSWORD_MIN = 8;
+
+  async function findLiveToken(raw) {
+    if (!raw || typeof raw !== "string" || raw.length > 200) return null;
+    const row = await prisma.passwordResetToken.findUnique({
+      where: { tokenHash: hashToken(raw) },
+      include: { user: { select: { id: true, email: true, isActive: true } } },
+    });
+    if (!row || row.usedAt || row.expiresAt <= new Date() || !row.user?.isActive) return null;
+    return row;
+  }
+
+  // POST forgot-password — always 200, sends an email only if the account exists
+  fastify.post(
+    "/forgot-password",
+    { config: { rateLimit: { max: 5, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const email = String(request.body?.email || "").trim().toLowerCase();
+      const locale = request.body?.locale === "ms" ? "ms" : "en";
+      const generic = { success: true };
+
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return generic;
+
+      const user = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+        select: { id: true, email: true, isActive: true, profile: { select: { name: true } } },
+      });
+      if (!user || !user.isActive) return generic;
+
+      const raw = crypto.randomBytes(32).toString("base64url");
+      const now = new Date();
+
+      await prisma.$transaction([
+        // A new link spends every older unused one.
+        prisma.passwordResetToken.updateMany({
+          where: { userId: user.id, usedAt: null },
+          data: { usedAt: now },
+        }),
+        prisma.passwordResetToken.create({
+          data: {
+            userId: user.id,
+            tokenHash: hashToken(raw),
+            expiresAt: new Date(now.getTime() + RESET_TTL_MINUTES * 60_000),
+          },
+        }),
+      ]);
+
+      const base = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+      const link = `${base}/reset-password?token=${encodeURIComponent(raw)}`;
+      const { subject, html, text } = getPasswordResetEmail({
+        name: user.profile?.name,
+        link,
+        locale,
+      });
+
+      try {
+        await fastify.email.send({ to: user.email, subject, html, text });
+      } catch (err) {
+        /* Logged, not surfaced: the response must not differ for real accounts,
+           and the person can simply ask again. */
+        fastify.log.error({ err, userId: user.id }, "Password reset email failed");
+      }
+
+      return generic;
+    },
+  );
+
+  // POST reset-password/check — is this link still usable? (page load)
+  fastify.post(
+    "/reset-password/check",
+    { config: { rateLimit: { max: 30, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const row = await findLiveToken(request.body?.token);
+      if (!row) return { valid: false };
+      return { valid: true, email: row.user.email };
+    },
+  );
+
+  // POST reset-password — spend the link and set the new password
+  fastify.post(
+    "/reset-password",
+    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const { token, password } = request.body || {};
+
+      if (typeof password !== "string" || password.length < PASSWORD_MIN) {
+        return reply.badRequest(`Password must be at least ${PASSWORD_MIN} characters.`);
+      }
+
+      const row = await findLiveToken(token);
+      if (!row) return reply.badRequest("This reset link is invalid or has expired.");
+
+      const hashed = await bcrypt.hash(password, 10);
+      const now = new Date();
+
+      await prisma.$transaction([
+        prisma.user.update({ where: { id: row.userId }, data: { password: hashed } }),
+        // Spend this link and any others still outstanding for the account.
+        prisma.passwordResetToken.updateMany({
+          where: { userId: row.userId, usedAt: null },
+          data: { usedAt: now },
+        }),
+      ]);
+
+      return { success: true };
+    },
+  );
 }
 
 module.exports = authRoutes;

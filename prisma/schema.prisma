@@ -80,6 +80,23 @@ model User {
   messageLogs        MessageLog[]
   recurringSchedules RecurringSchedule[]
   creditNotes        CreditNote[]
+  passwordResets     PasswordResetToken[]
+}
+
+/// One "forgot password" link. Only the SHA-256 of the token is stored, so a
+/// leaked database row cannot be turned back into a working link. Single use
+/// (usedAt) and short-lived (expiresAt); requesting a new link spends every
+/// older unused one for that account.
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────
